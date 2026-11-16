@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "vinyl",
+  "productName": "Vinyl",
   "version": "0.1.0",
   "identifier": "com.vinyl.player",
   "build": {
@@ -10,9 +10,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "vinyl",
-        "width": 800,
-        "height": 600
+        "title": "Vinyl",
+        "width": 480,
+        "height": 480
       }
     ],
     "security": {
