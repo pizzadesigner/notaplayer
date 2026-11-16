@@ -120,7 +120,8 @@ function label(cover, turn) {
   px(cx - 1, cy - 1, "#f4f5f7");
 }
 
-function draw(cover) {
+// turn: label angle (radians). drift: strobe dot offset (degrees). shine: 0..1 flicker while spinning.
+function draw(cover, turn, drift, shine) {
   const wall = cover ? cover.wall : DEFAULT_WALL;
   rect(0, 0, 160, 160, tone(wall));
   rect(0, 84, 160, 76, tone(wall, 0.5)); // desk
@@ -147,8 +148,8 @@ function draw(cover) {
 
   // Platter: side band (with strobe dots) shows at the front, silver top rim, dark gap.
   oval(REC.x, REC.y + 5, 58, "#2c3038");
-  for (let k = 1; k <= 4; k++) ring(REC.x, REC.y + k, 58, 15, 175, 4, k % 2 ? "#8a8f99" : "#5c616b");
-  for (let k = 2; k <= 4; k += 2) ring(REC.x, REC.y + k, 58, 17, 177, 4, "#c9cdd4");
+  for (let k = 1; k <= 4; k++) ring(REC.x, REC.y + k, 58, 15 + drift, 175, 4, k % 2 ? "#8a8f99" : "#5c616b");
+  for (let k = 2; k <= 4; k += 2) ring(REC.x, REC.y + k, 58, 17 + drift, 177, 4, "#c9cdd4");
   oval(REC.x, REC.y, 58, "#a3a9b3");
   ring(REC.x, REC.y, 58, 190, 300, 2, "#e2e5ea"); // lit back edge
   oval(REC.x, REC.y, 55, "#2a2e36");
@@ -158,12 +159,13 @@ function draw(cover) {
   oval(REC.x, REC.y, 52, "#191c2c");
   ring(REC.x, REC.y, 52, 190, 280, 1, "#7a82a4");
   for (const a of [46, 40, 34, 28]) ring(REC.x, back(a), a, 0, 359, 1, "#232741");
+  const wob = Math.round(shine * 3); // shine streaks shift a few degrees while spinning
   for (const a of [41, 44, 47]) {
-    ring(REC.x, back(a), a, 205, 245, 2, "#8a90b0");
-    ring(REC.x, back(a), a, 25, 65, 2, "#4a5070");
+    ring(REC.x, back(a), a, 205 + wob, 245 - wob, 2, shine > 0.5 ? "#9aa0c0" : "#8a90b0");
+    ring(REC.x, back(a), a, 25 - wob, 65 + wob, 2, "#4a5070");
   }
   oval(REC.x, Math.round(back(19)), 19, "#11131f"); // run-out ring
-  label(cover, 0);
+  label(cover, -turn); // minus: clockwise on screen, like a real record
 
   // Start/stop button and speed buttons at the front-left corner, 45 adapter well at the back.
   oval(26, 97, 5, "#2c3038");
@@ -193,18 +195,45 @@ function draw(cover) {
   rect(77, 122, 3, 2, "#3fae6a");
 }
 
+const RPM = 100 / 3; // 33⅓
+const EASE = 1; // seconds to stop on pause / reach full speed on play
+
 let coverUrl = null;
 let cover = null;
+let playing = false;
+let speed = 0; // 0 stopped .. 1 full speed
+let turn = 0;
+let last = 0;
+let running = false;
+
+const frame = (now) => draw(cover, turn, (turn * 180 / Math.PI * 0.05) % 4, speed * (0.5 + 0.5 * Math.sin(now / 80)));
+
+function tick(now) {
+  const dt = Math.min((now - last) / 1000, 0.1);
+  last = now;
+  speed += Math.max(-dt / EASE, Math.min(dt / EASE, (playing ? 1 : 0) - speed));
+  turn += speed * dt * 2 * Math.PI * RPM / 60;
+  frame(now);
+  // Stop the loop once the record stands still, so a paused app uses no CPU.
+  if (playing || speed > 0) requestAnimationFrame(tick);
+  else running = false;
+}
 
 async function show(t) {
+  playing = !!t?.playing;
   const url = t?.artwork_url || null;
   if (url !== coverUrl) {
     coverUrl = url;
     cover = url ? await loadCover(url).catch(() => null) : null;
   }
-  draw(cover);
+  frame(performance.now());
+  if (!running) {
+    running = true;
+    last = performance.now();
+    requestAnimationFrame(tick);
+  }
 }
 
-draw(null);
+frame(0);
 window.__TAURI__.event.listen("track", (e) => show(e.payload));
 window.__TAURI__.core.invoke("current_track").then(show);
