@@ -9,6 +9,9 @@ pub struct Track {
     album: String,
     artwork_url: String,
     volume: u8, // Spotify's own volume, 0..100
+    number: u32,   // track number on its album (0 if unknown)
+    position: f64, // seconds into the song when this was read
+    duration: f64, // song length in seconds (0 if unknown)
 }
 
 // Mac reads Spotify, Windows reads whatever plays (see win.rs). Both offer the same functions.
@@ -32,7 +35,8 @@ fn same_app(player: &str, exe_path: &str) -> bool {
 #[cfg_attr(windows, allow(dead_code))]
 fn parse(out: &str) -> Option<Track> {
     let f: Vec<&str> = out.trim_end_matches('\n').split('\n').collect();
-    let [state, id, name, artist, album, art, volume] = f[..] else { return None };
+    let [state, id, name, artist, album, art, volume, number, position, duration] = f[..] else { return None };
+    let ms = |s: &str| s.trim().parse::<f64>().unwrap_or(0.0) / 1000.0;
     Some(Track {
         playing: state == "playing",
         id: id.into(),
@@ -41,6 +45,9 @@ fn parse(out: &str) -> Option<Track> {
         album: album.into(),
         artwork_url: art.into(),
         volume: volume.trim().parse().unwrap_or(100),
+        number: number.trim().parse().unwrap_or(0),
+        position: ms(position),
+        duration: ms(duration),
     })
 }
 
@@ -60,7 +67,7 @@ if application "Spotify" is running then
   tell application "Spotify"
     if player state is stopped then return ""
     set t to current track
-    return (player state as string) & linefeed & (id of t) & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (artwork url of t) & linefeed & (sound volume as string)
+    return (player state as string) & linefeed & (id of t) & linefeed & (name of t) & linefeed & (artist of t) & linefeed & (album of t) & linefeed & (artwork url of t) & linefeed & (sound volume as string) & linefeed & (track number of t as string) & linefeed & ((player position * 1000) as integer as string) & linefeed & (duration of t as string)
   end tell
 end if
 return """#;
@@ -165,6 +172,16 @@ async fn seek_by(seconds: f64) {
     }
 }
 
+// Interface checkmarks in the menu: exactly one is checked.
+struct Interfaces(Vec<(&'static str, tauri::menu::CheckMenuItem<tauri::Wry>)>);
+
+#[tauri::command]
+fn interface_checked(items: tauri::State<'_, Interfaces>, id: String) {
+    for (name, item) in &items.0 {
+        let _ = item.set_checked(*name == id);
+    }
+}
+
 // Menu bar checkmark for the song name, set from the page's saved setting.
 #[tauri::command]
 fn show_name_checked(item: tauri::State<'_, tauri::menu::CheckMenuItem<tauri::Wry>>, on: bool) {
@@ -184,18 +201,26 @@ pub fn run() {
             player::listen(app.handle().clone());
             // One menu, shown from the menu bar icon and by right-clicking the scene
             // (the icon can end up hidden behind a MacBook notch). Switch looks, toggle the name, quit.
-            use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+            use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
             use tauri::{Emitter, Manager};
             let window = MenuItem::with_id(app, "window", "Window", true, None::<&str>)?;
             let scene = MenuItem::with_id(app, "scene", "Scene widget", true, None::<&str>)?;
-            let record = MenuItem::with_id(app, "record", "Record widget", true, None::<&str>)?;
+            let disc = MenuItem::with_id(app, "disc", "Disc widget", true, None::<&str>)?;
+            // Interfaces: which device is drawn. The page remembers the choice and sets the checkmarks.
+            let vinyl = CheckMenuItem::with_id(app, "iface:vinyl", "Vinyl", true, true, None::<&str>)?;
+            let cd = CheckMenuItem::with_id(app, "iface:cd", "CD", true, false, None::<&str>)?;
+            let interfaces = Submenu::with_items(app, "Interface", true, &[&vinyl, &cd])?;
+            app.manage(Interfaces(vec![("vinyl", vinyl.clone()), ("cd", cd.clone())]));
             let names = CheckMenuItem::with_id(app, "names", "Show song name", true, false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit notaplayer", true, None::<&str>)?;
             app.manage(names.clone()); // the page sets its saved state at start (show_name_checked)
-            let menu = Menu::with_items(app, &[&window, &scene, &record, &PredefinedMenuItem::separator(app)?, &names, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let menu = Menu::with_items(app, &[&window, &scene, &disc, &PredefinedMenuItem::separator(app)?, &interfaces, &names, &PredefinedMenuItem::separator(app)?, &quit])?;
             app.manage(menu.clone()); // for context_menu
             app.on_menu_event(|app, e| match e.id.as_ref() {
                 "quit" => app.exit(0),
+                id if id.starts_with("iface:") => {
+                    let _ = app.emit("interface", &id["iface:".len()..]);
+                }
                 "names" => {
                     let _ = app.emit("toggle-name", ()); // the page flips it and sets the checkmark back
                 }
@@ -209,7 +234,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip, seek_by, show_name_checked, context_menu])
+        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip, seek_by, show_name_checked, context_menu, interface_checked])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -220,9 +245,10 @@ mod tests {
 
     #[test]
     fn parses_spotify_output() {
-        let t = parse("paused\nspotify:track:1\nAirbag\nRadiohead\nOK Computer\nhttps://i.scdn.co/x\n42\n").unwrap();
+        let t = parse("paused\nspotify:track:1\nAirbag\nRadiohead\nOK Computer\nhttps://i.scdn.co/x\n42\n3\n61500\n284000\n").unwrap();
         assert!(!t.playing);
-        assert_eq!(t.volume, 42);
+        assert_eq!((t.volume, t.number), (42, 3));
+        assert_eq!((t.position, t.duration), (61.5, 284.0));
         assert_eq!((t.name.as_str(), t.album.as_str()), ("Airbag", "OK Computer"));
         assert_eq!(parse(""), None);
         assert_eq!(parse("\n"), None);

@@ -47,11 +47,16 @@ pub fn now_playing() -> Option<super::Track> {
     let props = s.TryGetMediaPropertiesAsync().ok()?.join().ok()?;
     let text = |h: windows::core::Result<windows::core::HSTRING>| h.map(|h| h.to_string()).unwrap_or_default();
     let (name, artist, album) = (text(props.Title()), text(props.Artist()), text(props.AlbumTitle()));
+    // Windows counts time in 100 ns ticks.
+    let (position, duration) = s.GetTimelineProperties().ok().and_then(|t| Some((t.Position().ok()?.Duration, t.EndTime().ok()?.Duration))).map_or((0.0, 0.0), |(p, e)| (p as f64 / 1e7, e as f64 / 1e7));
     Some(super::Track {
         playing: status == Status::Playing,
         id: format!("{name}\u{1f}{artist}\u{1f}{album}"), // Windows gives no track id
         artwork_url: props.Thumbnail().ok().and_then(|t| thumbnail(&t)).unwrap_or_default(),
         volume: volumes(&s).first().and_then(|v| unsafe { v.GetMasterVolume() }.ok()).map_or(100, |v| (v * 100.0).round() as u8),
+        number: props.TrackNumber().unwrap_or(0).max(0) as u32,
+        position,
+        duration,
         name,
         artist,
         album,
