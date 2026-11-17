@@ -25,6 +25,7 @@ const CORNERS = [[47, 115], [167, 115], [188, 162], [16, 162]]; // back-left, ba
 const HEIGHT = 1.2; // low camera: heights look taller compared to the squashed deck
 const PLAT = { u: 62, v: 58, r: 52, t: 5 }; // platter center, radius, height
 const REC_R = 47, LABEL_R = 15; // record and label radius
+const SLIDER = { u: 141, back: 62, front: 108 }; // volume slider slot: back end = loud
 const ARM = { u: 130, v: 28, len: 63, h: 11, play: Math.atan2(52, -35), rest: Math.atan2(62, 8) }; // pivot, length, angles
 
 // Record keyframes. Flat: plane position (u, v, h). Upright (up = 1): screen center (sx, sy), scale ss.
@@ -155,7 +156,7 @@ async function loadCover(url) {
 // Record point at local offset (x, y) from its center: blend of lying flat and standing upright.
 function recAt(R, x, y) {
   const [fx, fy] = P(R.u + x, R.v + y, R.h);
-  return [lerp(fx, R.sx + x * R.ss, R.up), lerp(fy, R.sy + y * R.ss, R.up)];
+  return [lerp(fx, R.sx + x * R.ss * (R.fx ?? 1), R.up), lerp(fy, R.sy + y * R.ss, R.up)]; // fx: coin-flip squash
 }
 const recCircle = (R, r, n = 56) => Array.from({ length: n }, (_, i) => recAt(R, r * Math.cos(i * 2 * Math.PI / n), r * Math.sin(i * 2 * Math.PI / n)));
 function recDots(R, r, from, to, step, c) {
@@ -297,14 +298,29 @@ function deck(drift) {
   arcDots(14, 14, 7, 4, 190, 300, 6, "#9aa0aa");
   // Small square start/stop at the front-left.
   box(8, 96, 16, 10, 3, "#dfe2e7");
-  // Speed slider on the right, with markings.
-  for (let k = 0; k < 8; k++) seg(P(133, 64 + k * 6), P(136, 64 + k * 6), "#6c717c");
-  poly([P(139, 62), P(143, 62), P(143, 108), P(139, 108)], "#3a3e48");
-  box(136, 82, 10, 5, 4, "#eef0f3");
+  // Volume slider on the right, with markings; the knob shows Spotify's volume.
+  const { u: su, back, front } = SLIDER;
+  for (let k = 0; k < 8; k++) seg(P(su - 8, back + 2 + k * 6), P(su - 5, back + 2 + k * 6), "#6c717c");
+  poly([P(su - 2, back), P(su + 2, back), P(su + 2, front), P(su - 2, front)], "#3a3e48");
+  box(su - 5, lerp(front - 5, back, volume / 100), 10, 5, 4, "#eef0f3");
+}
+
+// Widget mode: just the record standing upright on a see-through background.
+const WIDGET_R = 76; // record radius in canvas pixels
+const FLIP = 0.8; // seconds, coin flip on album change
+function drawWidget(p) {
+  g.clearRect(0, 0, 160, 160);
+  let cover = shown, fx = 1;
+  if (p.flip) {
+    cover = p.flip.k < 0.5 ? p.flip.from : p.flip.to; // new label shows once it turns past edge-on
+    fx = Math.max(Math.abs(Math.cos(Math.PI * ease(p.flip.k))), 0.04);
+  }
+  record(cover, { u: 0, v: 0, h: 0, up: 1, sx: 80, sy: 79, ss: WIDGET_R / REC_R, fx }, p.turn, p.shine);
 }
 
 // p: everything that moves. See pose().
 function draw(p) {
+  if (widget) return drawWidget(p);
   g.save();
   g.translate(-VIEW.x, -VIEW.y);
   rect(0, 0, W, W, tone(p.wall));
@@ -365,6 +381,9 @@ let last = 0;
 let running = false;
 let swap = null; // { start, from, to, stand } while swapping records
 let hop = null; // start time of an arm hop
+let widget = false; // widget mode: small see-through window with only the record
+let volume = 100; // Spotify's volume, 0..100
+let dragging = false; // dragging the volume slider
 
 const wallOf = (c) => (c ? c.wall : DEFAULT_WALL);
 const standItems = (list) => list.map((cover, i) => ({ cover, ...standSlot(i) }));
@@ -386,6 +405,7 @@ function pose(now) {
   while (i < SWAP.length - 1 && t > SWAP[i]) t -= SWAP[i++];
   const k = ease(Math.min(t / SWAP[i], 1));
   const { from, to } = swap;
+  p.flip = { k: Math.min((now - swap.start) / 1000 / FLIP, 1), from, to };
 
   p.swing = i === 0 ? k : i === 9 ? 1 - k : 1;
   p.lift = p.swing * 3;
@@ -406,7 +426,7 @@ function pose(now) {
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  if (swap && now - swap.start > SWAP_TOTAL * 1000) {
+  if (swap && now - swap.start > (widget ? FLIP : SWAP_TOTAL) * 1000) {
     stand = filed(swap.from, swap.stand);
     shown = swap.to;
     swap = null;
@@ -435,6 +455,7 @@ function wake() {
 
 async function show(t) {
   playing = !!t?.playing;
+  if (t && !dragging) volume = t.volume;
   const url = t?.artwork_url || null;
   const newTrack = (t?.id ?? null) !== trackId;
   trackId = t?.id ?? null;
@@ -451,6 +472,72 @@ async function show(t) {
   draw(pose(performance.now()));
   wake();
 }
+
+// Switch between the normal window and the widget. Each mode remembers where its window was.
+const win = window.__TAURI__.window.getCurrentWindow();
+const { LogicalSize, PhysicalPosition } = window.__TAURI__.dpi;
+const savedPos = (m) => { try { return JSON.parse(localStorage.getItem("pos-" + m)); } catch { return null; } };
+async function setMode(w) {
+  if (w === widget) return;
+  try { localStorage.setItem("pos-" + (widget ? "widget" : "window"), JSON.stringify(await win.outerPosition())); } catch {}
+  widget = w;
+  document.body.classList.toggle("widget", w);
+  await win.setDecorations(!w);
+  await win.setShadow(!w);
+  await win.setResizable(!w);
+  await win.setAlwaysOnBottom(w); // widget sits on the desktop, behind normal windows
+  await win.setSize(new LogicalSize(w ? 200 : 480, w ? 200 : 480));
+  const pos = savedPos(w ? "widget" : "window");
+  if (pos) await win.setPosition(new PhysicalPosition(pos.x, pos.y));
+  draw(pose(performance.now()));
+}
+window.__TAURI__.event.listen("mode", (e) => setMode(e.payload === "widget"));
+const scene = document.getElementById("scene");
+scene.addEventListener("dblclick", () => setMode(!widget));
+scene.addEventListener("mousedown", (e) => { if (widget && e.detail === 1) win.startDragging(); }); // no title bar to drag by
+
+// Volume: drag the slider or scroll on the scene (window mode only).
+// Sends at most one change at a time to Spotify, always ending with the latest value.
+let volWant = null, volBusy = false;
+async function setVolume(v) {
+  volume = Math.min(100, Math.max(0, v));
+  volWant = Math.round(volume);
+  if (!running) draw(pose(performance.now()));
+  if (volBusy) return;
+  volBusy = true;
+  while (volWant !== null) {
+    const send = volWant;
+    volWant = null;
+    await window.__TAURI__.core.invoke("set_volume", { volume: send }).catch(() => {});
+  }
+  volBusy = false;
+}
+// Mouse position in scene pixels.
+function scenePoint(e) {
+  const r = scene.getBoundingClientRect(), k = Math.min(r.width, r.height) / 160;
+  return [(e.clientX - r.left - (r.width - 160 * k) / 2) / k + VIEW.x, (e.clientY - r.top - (r.height - 160 * k) / 2) / k + VIEW.y];
+}
+// Slider ends on screen; the volume follows the mouse between them.
+function sliderVolume([x, y], strict) {
+  const [bx, by] = P(SLIDER.u, SLIDER.back), [fx, fy] = P(SLIDER.u, SLIDER.front);
+  const t = (y - by) / (fy - by);
+  if (strict && (t < -0.15 || t > 1.15 || Math.abs(x - lerp(bx, fx, t)) > 7)) return null;
+  return (1 - t) * 100;
+}
+scene.addEventListener("mousedown", (e) => {
+  if (widget) return;
+  const v = sliderVolume(scenePoint(e), true);
+  if (v === null) return;
+  dragging = true;
+  setVolume(v);
+});
+window.addEventListener("mousemove", (e) => { if (dragging) setVolume(sliderVolume(scenePoint(e))); });
+window.addEventListener("mouseup", () => { dragging = false; });
+scene.addEventListener("wheel", (e) => {
+  if (widget) return;
+  e.preventDefault();
+  setVolume(volume - e.deltaY * 0.25);
+}, { passive: false });
 
 draw(pose(0));
 window.__TAURI__.event.listen("track", (e) => show(e.payload));

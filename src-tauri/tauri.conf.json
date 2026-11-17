@@ -12,12 +12,14 @@
       {
         "title": "Vinyl",
         "width": 480,
-        "height": 480
+        "height": 480,
+        "transparent": true
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
