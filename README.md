@@ -29,7 +29,13 @@ Download the file for your system from the [Releases](../../releases) page.
 ### macOS (Apple Silicon)
 
 1. Open `notaplayer_<version>_aarch64.dmg` and drag **notaplayer** into **Applications**.
-2. The app is not signed with an Apple developer account, so the first launch is blocked: right-click notaplayer in Applications → **Open** → **Open**. Or allow it under **System Settings → Privacy & Security**.
+2. The app is not signed with an Apple developer account, so the first launch is blocked ("Apple could not verify…"). Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to notaplayer. You only have to do this once.
+
+   If macOS says notaplayer "is damaged" instead (version 0.0.0), run this once in Terminal and open it again:
+
+   ```bash
+   xattr -cr /Applications/notaplayer.app
+   ```
 3. When asked, allow notaplayer to control **Spotify**. If you clicked "Don't Allow", turn it on under **System Settings → Privacy & Security → Automation → notaplayer → Spotify**.
 
 Intel Macs are not supported yet.
