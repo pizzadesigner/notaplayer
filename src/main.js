@@ -208,10 +208,10 @@ function sleeve(cover, x, y, dark = 0, alpha = 1) {
 }
 
 // Sleeve standing out on the wall, with its shadow.
-function displayed(cover, x, wall) {
+function displayed(cover, x, wall, lift = 0) {
   if (!cover) return;
   rect(x + 3, SLEEVE_Y + 3, SLEEVE, SLEEVE - 3, tone(wall, 0.65));
-  sleeve(cover, x, SLEEVE_Y);
+  sleeve(cover, x, SLEEVE_Y - lift);
 }
 
 // Stand rail along the desk edge, in front of the sleeve bottoms.
@@ -338,8 +338,9 @@ function draw(p) {
   rect(0, DESK_Y, W, 1, tone(p.wall, 0.7)); // desk edge catching light
 
   // Stand: oldest at the back first; the moving sleeve goes in front of all of it.
-  for (const s of [...p.stand].reverse()) sleeve(s.cover, s.x, s.y, s.dark, s.alpha);
-  displayed(p.display, p.displayX, p.wall);
+  const lift = (what) => (hover === what && !swap ? HOVER_LIFT : 0);
+  for (const s of [...p.stand].reverse()) sleeve(s.cover, s.x, s.y - lift("stand"), s.dark, s.alpha);
+  displayed(p.display, p.displayX, p.wall, lift("album"));
   standRail();
 
   deck(p.drift);
@@ -395,6 +396,8 @@ let widget = false; // widget mode: small see-through window with only the recor
 let volume = 100; // Spotify's volume, 0..100
 let dragging = false; // dragging the volume slider
 let pressed = false; // start/stop button held down
+let hover = null; // "album" or "stand" under the mouse
+const HOVER_LIFT = 2;
 let armUp = 1; // 0 arm down on the record .. 1 lifted (paused); eases toward the play state
 const ARM_HOVER = 4; // how high the arm hovers while paused
 const ARM_EASE = 0.3; // seconds to lift / lower
@@ -548,6 +551,29 @@ function onStart([x, y]) {
   const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
   return x >= Math.min(...xs) - 1 && x <= Math.max(...xs) + 1 && y >= Math.min(...ys) - 1 && y <= Math.max(...ys) + 1;
 }
+// Click the displayed album for the next song, the stand for the previous one.
+function hitSleeves([x, y]) {
+  if (y < SLEEVE_Y - 4 || y > DESK_Y) return null;
+  if (x >= standSlot(STAND_SIZE - 1).x - 2) return "stand";
+  if (x >= SLEEVE_X && x < SLEEVE_X + SLEEVE) return "album";
+  return null;
+}
+scene.addEventListener("mousedown", (e) => {
+  const hit = !widget && hitSleeves(scenePoint(e));
+  if (hit) window.__TAURI__.core.invoke("skip", { forward: hit === "album" }).catch(() => {});
+});
+scene.addEventListener("mousemove", (e) => {
+  const h = widget ? null : hitSleeves(scenePoint(e));
+  scene.style.cursor = h ? "pointer" : "";
+  if (h === hover) return;
+  hover = h;
+  if (!running) draw(pose(performance.now()));
+});
+scene.addEventListener("mouseleave", () => {
+  hover = null;
+  if (!running) draw(pose(performance.now()));
+});
+
 scene.addEventListener("mousedown", (e) => {
   if (widget || !onStart(scenePoint(e))) return;
   pressed = true;

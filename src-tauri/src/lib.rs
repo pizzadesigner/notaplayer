@@ -65,6 +65,13 @@ return """#;
         let _ = std::process::Command::new("osascript").args(["-e", script]).output();
     }
 
+    // Back always goes to the previous song: rewinding to 0 first stops Spotify from just restarting this one.
+    pub fn skip(forward: bool) {
+        let action = if forward { "next track" } else { "set player position to 0\n    previous track" };
+        let script = format!("if application \"Spotify\" is running then\n  tell application \"Spotify\"\n    {action}\n  end tell\nend if");
+        let _ = std::process::Command::new("osascript").args(["-e", &script]).output();
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "VinylSpotifyObserver"]
@@ -119,6 +126,11 @@ async fn play_pause() {
     mac::play_pause()
 }
 
+#[tauri::command]
+async fn skip(forward: bool) {
+    mac::skip(forward)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -142,7 +154,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause])
+        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
