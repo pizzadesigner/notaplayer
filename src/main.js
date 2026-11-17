@@ -330,7 +330,7 @@ function drawWidget(p) {
 
 // p: everything that moves. See pose().
 function draw(p) {
-  if (widget) return drawWidget(p);
+  if (mode === "record") return drawWidget(p);
   g.save();
   g.translate(-VIEW.x, -VIEW.y);
   rect(0, 0, W, W, tone(p.wall));
@@ -392,7 +392,7 @@ let last = 0;
 let running = false;
 let swap = null; // { start, from, to, stand } while swapping records
 let hop = null; // start time of an arm hop
-let widget = false; // widget mode: small see-through window with only the record
+let mode = "window"; // "window", "scene" (whole scene as a small widget) or "record" (only the record, see-through)
 let volume = 100; // Spotify's volume, 0..100
 let dragging = false; // dragging the volume slider
 let pressed = false; // start/stop button held down
@@ -444,7 +444,7 @@ function pose(now) {
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  if (swap && now - swap.start > (widget ? FLIP : SWAP_TOTAL) * 1000) {
+  if (swap && now - swap.start > (mode === "record" ? FLIP : SWAP_TOTAL) * 1000) {
     stand = filed(swap.from, swap.stand);
     shown = swap.to;
     swap = null;
@@ -493,30 +493,36 @@ async function show(t) {
   wake();
 }
 
-// Switch between the normal window and the widget. Each mode remembers where its window was.
+// Three looks: the normal window and two 200×200 widgets that sit on the desktop.
+// Double-click cycles window → scene → record → window. Window and widgets each remember their position.
+const MODES = ["window", "scene", "record"];
 const win = window.__TAURI__.window.getCurrentWindow();
 const { LogicalSize, PhysicalPosition } = window.__TAURI__.dpi;
-const savedPos = (m) => { try { return JSON.parse(localStorage.getItem("pos-" + m)); } catch { return null; } };
-async function setMode(w) {
-  if (w === widget) return;
-  try { localStorage.setItem("pos-" + (widget ? "widget" : "window"), JSON.stringify(await win.outerPosition())); } catch {}
-  widget = w;
-  document.body.classList.toggle("widget", w);
-  await win.setDecorations(!w);
-  await win.setShadow(!w);
-  await win.setResizable(!w);
-  await win.setAlwaysOnBottom(w); // widget sits on the desktop, behind normal windows
-  await win.setSize(new LogicalSize(w ? 200 : 480, w ? 200 : 480));
-  const pos = savedPos(w ? "widget" : "window");
-  if (pos) await win.setPosition(new PhysicalPosition(pos.x, pos.y));
+const posKey = (m) => "pos-" + (m === "window" ? "window" : "widget");
+const savedPos = (m) => { try { return JSON.parse(localStorage.getItem(posKey(m))); } catch { return null; } };
+async function setMode(m) {
+  if (m === mode || !MODES.includes(m)) return;
+  const wasWindow = mode === "window", toWindow = m === "window";
+  try { localStorage.setItem(posKey(mode), JSON.stringify(await win.outerPosition())); } catch {}
+  mode = m;
+  hover = null;
+  document.body.classList.toggle("widget", !toWindow);
+  document.body.dataset.mode = m; // scene widget gets rounded corners (CSS)
+  if (wasWindow !== toWindow) {
+    await win.setDecorations(toWindow);
+    await win.setShadow(toWindow);
+    await win.setResizable(toWindow);
+    await win.setAlwaysOnBottom(!toWindow); // widgets sit on the desktop, behind normal windows
+    await win.setSize(new LogicalSize(toWindow ? 480 : 200, toWindow ? 480 : 200));
+    const pos = savedPos(m);
+    if (pos) await win.setPosition(new PhysicalPosition(pos.x, pos.y));
+  }
   draw(pose(performance.now()));
 }
-window.__TAURI__.event.listen("mode", (e) => setMode(e.payload === "widget"));
+window.__TAURI__.event.listen("mode", (e) => setMode(e.payload));
 const scene = document.getElementById("scene");
-scene.addEventListener("dblclick", () => setMode(!widget));
-scene.addEventListener("mousedown", (e) => { if (widget && e.detail === 1) win.startDragging(); }); // no title bar to drag by
 
-// Volume: drag the slider or scroll on the scene (window mode only).
+// Volume: drag the slider or scroll on the scene.
 // Sends at most one change at a time to Spotify, always ending with the latest value.
 let volWant = null, volBusy = false;
 async function setVolume(v) {
@@ -551,19 +557,57 @@ function onStart([x, y]) {
   const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
   return x >= Math.min(...xs) - 1 && x <= Math.max(...xs) + 1 && y >= Math.min(...ys) - 1 && y <= Math.max(...ys) + 1;
 }
-// Click the displayed album for the next song, the stand for the previous one.
+// Displayed album = next song, stand = previous song.
 function hitSleeves([x, y]) {
   if (y < SLEEVE_Y - 4 || y > DESK_Y) return null;
   if (x >= standSlot(STAND_SIZE - 1).x - 2) return "stand";
   if (x >= SLEEVE_X && x < SLEEVE_X + SLEEVE) return "album";
   return null;
 }
+const onControl = (pt) => onStart(pt) || sliderVolume(pt, true) !== null || hitSleeves(pt) !== null;
+
+// One press handler: controls first (window and scene widget), otherwise drag the widget around.
 scene.addEventListener("mousedown", (e) => {
-  const hit = !widget && hitSleeves(scenePoint(e));
-  if (hit) window.__TAURI__.core.invoke("skip", { forward: hit === "album" }).catch(() => {});
+  const pt = scenePoint(e);
+  if (mode !== "record") {
+    if (onStart(pt)) {
+      pressed = true;
+      if (!running) draw(pose(performance.now()));
+      window.__TAURI__.core.invoke("play_pause").catch(() => {});
+      return;
+    }
+    const v = sliderVolume(pt, true);
+    if (v !== null) {
+      dragging = true;
+      setVolume(v);
+      return;
+    }
+    const hit = hitSleeves(pt);
+    if (hit) {
+      window.__TAURI__.core.invoke("skip", { forward: hit === "album" }).catch(() => {});
+      return;
+    }
+  }
+  if (mode !== "window" && e.detail === 1) win.startDragging(); // widgets have no title bar to drag by
 });
+scene.addEventListener("dblclick", (e) => {
+  if (mode !== "record" && onControl(scenePoint(e))) return; // double-clicking a control just uses it twice
+  setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
+});
+window.addEventListener("mousemove", (e) => { if (dragging) setVolume(sliderVolume(scenePoint(e))); });
+window.addEventListener("mouseup", () => {
+  dragging = false;
+  if (!pressed) return;
+  pressed = false;
+  if (!running) draw(pose(performance.now()));
+});
+scene.addEventListener("wheel", (e) => {
+  if (mode === "record") return;
+  e.preventDefault();
+  setVolume(volume - e.deltaY * 0.25);
+}, { passive: false });
 scene.addEventListener("mousemove", (e) => {
-  const h = widget ? null : hitSleeves(scenePoint(e));
+  const h = mode === "record" ? null : hitSleeves(scenePoint(e));
   scene.style.cursor = h ? "pointer" : "";
   if (h === hover) return;
   hover = h;
@@ -573,33 +617,6 @@ scene.addEventListener("mouseleave", () => {
   hover = null;
   if (!running) draw(pose(performance.now()));
 });
-
-scene.addEventListener("mousedown", (e) => {
-  if (widget || !onStart(scenePoint(e))) return;
-  pressed = true;
-  if (!running) draw(pose(performance.now()));
-  window.__TAURI__.core.invoke("play_pause").catch(() => {});
-});
-window.addEventListener("mouseup", () => {
-  if (!pressed) return;
-  pressed = false;
-  if (!running) draw(pose(performance.now()));
-});
-
-scene.addEventListener("mousedown", (e) => {
-  if (widget) return;
-  const v = sliderVolume(scenePoint(e), true);
-  if (v === null) return;
-  dragging = true;
-  setVolume(v);
-});
-window.addEventListener("mousemove", (e) => { if (dragging) setVolume(sliderVolume(scenePoint(e))); });
-window.addEventListener("mouseup", () => { dragging = false; });
-scene.addEventListener("wheel", (e) => {
-  if (widget) return;
-  e.preventDefault();
-  setVolume(volume - e.deltaY * 0.25);
-}, { passive: false });
 
 draw(pose(0));
 window.__TAURI__.event.listen("track", (e) => show(e.payload));

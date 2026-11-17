@@ -139,12 +139,13 @@ pub fn run() {
             // Menu bar icon: switch modes (the page does the switching) or quit.
             use tauri::menu::{Menu, MenuItem};
             use tauri::Emitter;
-            let widget = MenuItem::with_id(app, "widget", "Widget mode", true, None::<&str>)?;
-            let window = MenuItem::with_id(app, "window", "Window mode", true, None::<&str>)?;
+            let window = MenuItem::with_id(app, "window", "Window", true, None::<&str>)?;
+            let scene = MenuItem::with_id(app, "scene", "Scene widget", true, None::<&str>)?;
+            let record = MenuItem::with_id(app, "record", "Record widget", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Vinyl", true, None::<&str>)?;
             tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&Menu::with_items(app, &[&widget, &window, &quit])?)
+                .menu(&Menu::with_items(app, &[&window, &scene, &record, &quit])?)
                 .on_menu_event(|app, e| match e.id.as_ref() {
                     "quit" => app.exit(0),
                     mode => {
