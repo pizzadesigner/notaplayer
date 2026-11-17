@@ -453,12 +453,14 @@ function tick(now) {
   if (hop !== null && now - hop > HOP * 1000) hop = null;
   const target = playing && !swap ? 1 : 0; // record stops while being swapped
   speed += Math.max(-dt / EASE, Math.min(dt / EASE, target - speed));
-  turn += speed * dt * 2 * Math.PI * RPM / 60;
+  turn += speed * dt * 2 * Math.PI * RPM / 60 + scrub * dt;
+  scrub *= Math.exp(-dt / SCRUB_FADE); // extra spin from seeking fades out
+  if (Math.abs(scrub) < 0.05) scrub = 0;
   const armTarget = playing ? 0 : 1;
   armUp += Math.max(-dt / ARM_EASE, Math.min(dt / ARM_EASE, armTarget - armUp));
   draw(pose(now));
   // Stop the loop once nothing moves, so a paused app uses no CPU.
-  if (playing || speed > 0 || swap || hop !== null || armUp !== armTarget) requestAnimationFrame(tick);
+  if (playing || speed > 0 || swap || hop !== null || armUp !== armTarget || scrub) requestAnimationFrame(tick);
   else running = false;
 }
 
@@ -601,10 +603,36 @@ window.addEventListener("mouseup", () => {
   pressed = false;
   if (!running) draw(pose(performance.now()));
 });
+// Sideways scroll moves through the song: swipe right = back, left = forward (the platter turns
+// leftward at the front, so pushing it right winds it back). Up/down stays volume.
+// Jumps are collected and sent once the swipe pauses; the record spins fast in that direction meanwhile.
+const SEEK_PER_PX = 0.07; // seconds per scroll pixel, ~10s for a short swipe
+const SCRUB_SPIN = 1.5; // extra spin (radians/s) per second jumped
+const SCRUB_FADE = 0.25; // seconds for the extra spin to die down
+let scrub = 0, seekWant = 0, seekTimer = null, seekBusy = false;
+async function sendSeek() {
+  seekTimer = null;
+  if (seekBusy) return;
+  seekBusy = true;
+  while (seekWant) {
+    const seconds = seekWant;
+    seekWant = 0;
+    await window.__TAURI__.core.invoke("seek_by", { seconds }).catch(() => {});
+  }
+  seekBusy = false;
+}
+function seek(seconds) {
+  seekWant += seconds;
+  scrub += seconds * SCRUB_SPIN;
+  clearTimeout(seekTimer);
+  seekTimer = setTimeout(sendSeek, 150);
+  wake();
+}
 scene.addEventListener("wheel", (e) => {
   if (mode === "record") return;
   e.preventDefault();
-  setVolume(volume - e.deltaY * 0.25);
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) seek(e.deltaX * SEEK_PER_PX);
+  else setVolume(volume - e.deltaY * 0.25);
 }, { passive: false });
 scene.addEventListener("mousemove", (e) => {
   const h = mode === "record" ? null : hitSleeves(scenePoint(e));

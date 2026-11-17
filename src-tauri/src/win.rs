@@ -88,6 +88,15 @@ pub fn skip(forward: bool) {
     }
 }
 
+// Jump by `seconds` (negative = back), kept inside the song. Windows counts time in 100 ns ticks.
+pub fn seek_by(seconds: f64) {
+    let Some(s) = session() else { return };
+    let Ok(t) = s.GetTimelineProperties() else { return };
+    let (Ok(pos), Ok(end)) = (t.Position(), t.EndTime()) else { return };
+    let target = (pos.Duration + (seconds * 1e7) as i64).clamp(0, (end.Duration - 10_000_000).max(0));
+    let _ = s.TryChangePlaybackPositionAsync(target).and_then(|a| a.join());
+}
+
 pub fn set_volume(volume: u8) {
     let Some(s) = session() else { return };
     for v in volumes(&s) {

@@ -90,6 +90,14 @@ return """#;
         let _ = std::process::Command::new("osascript").args(["-e", &script]).output();
     }
 
+    // Jump by `seconds` (negative = back), kept inside the song.
+    pub fn seek_by(seconds: f64) {
+        let script = format!(
+            "if application \"Spotify\" is running then\n  tell application \"Spotify\"\n    set p to (player position) + ({seconds})\n    set d to (duration of current track) / 1000\n    if p > d - 1 then set p to d - 1\n    if p < 0 then set p to 0\n    set player position to p\n  end tell\nend if"
+        );
+        let _ = std::process::Command::new("osascript").args(["-e", &script]).output();
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "VinylSpotifyObserver"]
@@ -149,6 +157,13 @@ async fn skip(forward: bool) {
     player::skip(forward)
 }
 
+#[tauri::command]
+async fn seek_by(seconds: f64) {
+    if seconds.is_finite() {
+        player::seek_by(seconds)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -173,7 +188,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip])
+        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip, seek_by])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
