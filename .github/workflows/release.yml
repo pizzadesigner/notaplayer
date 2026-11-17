@@ -1,0 +1,37 @@
+# Pushing a version tag (e.g. v0.0.0) builds the Windows .exe setup and the Mac .dmg
+# and attaches both to a GitHub Release for that tag.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-latest # Apple Silicon
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: notaplayer ${{ github.ref_name }}
+          releaseDraft: false
+          args: --bundles ${{ matrix.bundles }}

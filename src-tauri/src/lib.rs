@@ -11,7 +11,25 @@ pub struct Track {
     volume: u8, // Spotify's own volume, 0..100
 }
 
+// Mac reads Spotify, Windows reads whatever plays (see win.rs). Both offer the same functions.
+#[cfg(target_os = "macos")]
+use mac as player;
+#[cfg(windows)]
+mod win;
+#[cfg(windows)]
+use win as player;
+
+// Windows: does an audio program (its .exe path) belong to the player Windows reports
+// ("Spotify.exe", "Chrome", "SpotifyAB.SpotifyMusic_...!Spotify")?
+#[cfg_attr(not(windows), allow(dead_code))]
+fn same_app(player: &str, exe_path: &str) -> bool {
+    let exe = exe_path.rsplit(['\\', '/']).next().unwrap_or("").to_lowercase();
+    let exe = exe.trim_end_matches(".exe");
+    !exe.is_empty() && player.to_lowercase().contains(exe)
+}
+
 // Spotify output: one field per line, empty when Spotify is closed or stopped.
+#[cfg_attr(windows, allow(dead_code))]
 fn parse(out: &str) -> Option<Track> {
     let f: Vec<&str> = out.trim_end_matches('\n').split('\n').collect();
     let [state, id, name, artist, album, art, volume] = f[..] else { return None };
@@ -113,29 +131,29 @@ return """#;
 
 #[tauri::command]
 async fn current_track() -> Option<Track> {
-    mac::now_playing()
+    player::now_playing()
 }
 
 #[tauri::command]
 async fn set_volume(volume: u8) {
-    mac::set_volume(volume)
+    player::set_volume(volume)
 }
 
 #[tauri::command]
 async fn play_pause() {
-    mac::play_pause()
+    player::play_pause()
 }
 
 #[tauri::command]
 async fn skip(forward: bool) {
-    mac::skip(forward)
+    player::skip(forward)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            mac::listen(app.handle().clone());
+            player::listen(app.handle().clone());
             // Menu bar icon: switch modes (the page does the switching) or quit.
             use tauri::menu::{Menu, MenuItem};
             use tauri::Emitter;
@@ -172,5 +190,14 @@ mod tests {
         assert_eq!((t.name.as_str(), t.album.as_str()), ("Airbag", "OK Computer"));
         assert_eq!(parse(""), None);
         assert_eq!(parse("\n"), None);
+    }
+
+    #[test]
+    fn matches_player_to_its_program() {
+        assert!(same_app("Spotify.exe", r"C:\Users\a\AppData\Roaming\Spotify\Spotify.exe"));
+        assert!(same_app("Chrome", r"C:\Program Files\Google\Chrome\Application\chrome.exe"));
+        assert!(same_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", r"C:\Program Files\WindowsApps\Spotify.exe"));
+        assert!(!same_app("Chrome", r"C:\Windows\explorer.exe"));
+        assert!(!same_app("Chrome", ""));
     }
 }
