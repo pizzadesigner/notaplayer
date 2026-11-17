@@ -14,13 +14,16 @@ A small pixel-art record player for your desktop. It shows the music you are pla
   - Start/stop button (front left): play / pause.
   - Click the album on the wall: next song.
   - Click the stand: previous song.
-  - Volume slider (right side), or scroll anywhere on the scene: volume of the music app only, not the whole computer.
-- **Three looks**: double-click an empty spot to cycle between them, or pick one from the menu bar / tray icon.
+  - Volume slider (right side), or scroll up/down anywhere on the scene: volume of the music app only, not the whole computer.
+  - Grab the record and turn it: clockwise moves forward in the song, anticlockwise goes back (one full turn = 30 seconds). The music jumps there when you let go.
+- **Song name** (optional): turn on **Show song name** in the menu to see the title and artist in a pixel-font strip along the bottom. Long names scroll by. The setting is remembered.
+- **Three looks**: double-click an empty spot to cycle between them, or pick one from the menu.
   - **Window**: the full scene in a normal window.
   - **Scene widget**: the full scene, small, with rounded corners, sitting on the desktop.
   - **Record widget**: just the spinning record. On an album change it flips like a coin.
 
   Widgets sit behind your other windows and can be dragged from any empty spot.
+- **Menu**: right-click anywhere on the scene, or use the menu bar / tray icon. It switches looks, turns the song name on or off, and quits the app. On MacBooks with a notch the menu bar icon can be hidden when the menu bar is full; right-click always works.
 
 ## Install
 
