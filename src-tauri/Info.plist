@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Vinyl reads the current track from Spotify to show its record.</string>
+  <string>notaplayer reads the current track from Spotify to show its record.</string>
 </dict>
 </plist>

@@ -142,7 +142,7 @@ pub fn run() {
             let window = MenuItem::with_id(app, "window", "Window", true, None::<&str>)?;
             let scene = MenuItem::with_id(app, "scene", "Scene widget", true, None::<&str>)?;
             let record = MenuItem::with_id(app, "record", "Record widget", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit Vinyl", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit notaplayer", true, None::<&str>)?;
             tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&Menu::with_items(app, &[&window, &scene, &record, &quit])?)
