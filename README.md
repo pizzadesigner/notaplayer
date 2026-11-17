@@ -1,29 +1,50 @@
 # notaplayer
 
-A small pixel-art record player for your desktop. It shows the music you are playing as a vinyl on a turntable, with the album cover on the record and the sleeve standing behind it.
+A small pixel-art music player for your desktop. It shows the music you are playing on a pixel-art device, with the album cover on the disc. Pick the device in the menu under **Interface**:
+
+- **Vinyl**: a turntable with the album's sleeve on the wall.
+- **CD**: a portable CD player with the album's jewel case on the desk and a wheel of your recent songs.
 
 ## What it does
 
 - **Follows your music**
   - macOS: Spotify.
   - Windows: anything in the Windows media panel (Spotify, browsers such as YouTube in Chrome or Edge, Apple Music, VLC and more).
-- **Spinning record**: turns at 33⅓ RPM while playing and slows to a stop on pause. While paused, the tonearm lifts and hovers above the record.
-- **Album changes**: the record goes back into its sleeve, the sleeve slides into the stand on the right, and the new album slides out with its record. The wall takes on the color of the new cover.
-- **Album stand**: the last 3 albums you played peek in from the right edge.
-- **Controls on the player**
-  - Start/stop button (front left): play / pause.
-  - Click the album on the wall: next song.
-  - Click the stand: previous song.
-  - Volume slider (right side), or scroll up/down anywhere on the scene: volume of the music app only, not the whole computer.
-  - Grab the record and turn it: clockwise moves forward in the song, anticlockwise goes back (one full turn = 30 seconds). The music jumps there when you let go.
-- **Song name** (optional): turn on **Show song name** in the menu to see the title and artist in a pixel-font strip along the bottom. Long names scroll by. The setting is remembered.
+- **Song name** (optional): turn on **Show song name** in the menu to see the title and artist in a pixel-font strip along the bottom. Long names scroll by.
+- **Volume**: scroll up/down anywhere on the scene. It changes the music app's volume only, not the whole computer.
 - **Three looks**: double-click an empty spot to cycle between them, or pick one from the menu.
   - **Window**: the full scene in a normal window.
   - **Scene widget**: the full scene, small, with rounded corners, sitting on the desktop.
-  - **Record widget**: just the spinning record. On an album change it flips like a coin.
+  - **Disc widget**: just the spinning record or CD. On an album change it flips like a coin.
 
   Widgets sit behind your other windows and can be dragged from any empty spot.
-- **Menu**: right-click anywhere on the scene, or use the menu bar / tray icon. It switches looks, turns the song name on or off, and quits the app. On MacBooks with a notch the menu bar icon can be hidden when the menu bar is full; right-click always works.
+- **Menu**: right-click anywhere on the scene, or use the menu bar / tray icon. It switches looks and interfaces, turns the song name on or off, and quits the app. On MacBooks with a notch the menu bar icon can be hidden when the menu bar is full; right-click always works.
+
+All settings (interface, look, song name, widget position) are remembered.
+
+### Vinyl
+
+- **Spinning record**: turns at 33⅓ RPM while playing and slows to a stop on pause. While paused, the tonearm lifts and hovers above the record.
+- **Album changes**: the record goes back into its sleeve, the sleeve slides into the stand on the right, and the new album slides out with its record. The wall takes on the color of the new cover.
+- **Album stand**: the last 3 albums you played peek in from the right edge.
+- **Controls**
+  - Start/stop button (front left): play / pause.
+  - Click the album on the wall: next song. Click the stand: previous song.
+  - Volume slider on the right.
+  - Grab the record and turn it: clockwise moves forward in the song, anticlockwise goes back (one full turn = 30 seconds). The music jumps there when you let go.
+
+### CD
+
+- **Spinning disc**: the cover is printed over the whole CD, which spins under a clear window in the lid.
+- **LCD**: shows the track number and the running time; the time blinks while paused.
+- **Song changes**: the jewel case on the desk flies into the wheel on the right and a fresh case pops up from the side.
+- **Album changes**: the lid opens, the disc goes into its case, the case flies into the wheel, the new album's case pops up, its disc drops in and the lid closes.
+- **Song wheel**: a clear acrylic wheel holding your last 16 songs; it turns one slot on every song.
+- **Controls**
+  - ▶‖: play / pause.
+  - ◀◀ / ▶▶: click for the previous / next song, hold to wind back / forward through the song.
+  - − / +: volume.
+  - Click the case on the desk: next song. Click the wheel: previous song.
 
 ## Install
 
