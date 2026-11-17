@@ -25,6 +25,7 @@ const CORNERS = [[47, 115], [167, 115], [188, 162], [16, 162]]; // back-left, ba
 const HEIGHT = 1.2; // low camera: heights look taller compared to the squashed deck
 const PLAT = { u: 62, v: 58, r: 52, t: 5 }; // platter center, radius, height
 const REC_R = 47, LABEL_R = 15; // record and label radius
+const START = { u: 8, v: 103, w: 14, d: 8 }; // start/stop button at the front-left, clear of the platter
 const SLIDER = { u: 141, back: 62, front: 108 }; // volume slider slot: back end = loud
 const ARM = { u: 130, v: 28, len: 63, h: 11, play: Math.atan2(52, -35), rest: Math.atan2(62, 8) }; // pivot, length, angles
 
@@ -269,6 +270,15 @@ function tonearm(swing, lift) {
   poly([P(eu + du * 2 - su / 2, ev + dv * 2 - sv / 2, h - 1), P(eu + du * 2 + su / 2, ev + dv * 2 + sv / 2, h - 1), P(eu + du * 6 + su / 2, ev + dv * 6 + sv / 2, h - 4), P(eu + du * 6 - su / 2, ev + dv * 6 - sv / 2, h - 4)], "#3fae6a"); // cartridge
 }
 
+// Slider cap: crisp raised block with a grip line across the middle, no recess around it.
+function sliderKnob(u, v, w, d, h) {
+  poly([P(u + 1, v + 1), P(u + w + 1, v + 1), P(u + w + 1, v + d + 1), P(u + 1, v + d + 1)], "rgba(0,0,0,.3)"); // shadow
+  poly([P(u, v + d), P(u + w, v + d), P(u + w, v + d, h), P(u, v + d, h)], "#8a8f99"); // front side
+  poly([P(u, v, h), P(u + w, v, h), P(u + w, v + d, h), P(u, v + d, h)], "#eef0f3"); // top
+  seg(P(u, v, h), P(u + w, v, h), "#ffffff"); // lit back edge
+  seg(P(u + 1, v + d / 2, h), P(u + w - 1, v + d / 2, h), "#6c717c"); // grip line
+}
+
 function deck(drift) {
   const { U, V, T } = DECK;
   const top = [P(0, 0), P(U, 0), P(U, V), P(0, V)];
@@ -297,12 +307,12 @@ function deck(drift) {
   disc(14, 14, 5, 4, "#5c616b");
   arcDots(14, 14, 7, 4, 190, 300, 6, "#9aa0aa");
   // Small square start/stop at the front-left.
-  box(8, 96, 16, 10, 3, "#dfe2e7");
+  box(START.u, START.v, START.w, START.d, pressed ? 1 : 3, "#dfe2e7");
   // Volume slider on the right, with markings; the knob shows Spotify's volume.
   const { u: su, back, front } = SLIDER;
   for (let k = 0; k < 8; k++) seg(P(su - 8, back + 2 + k * 6), P(su - 5, back + 2 + k * 6), "#6c717c");
   poly([P(su - 2, back), P(su + 2, back), P(su + 2, front), P(su - 2, front)], "#3a3e48");
-  box(su - 5, lerp(front - 5, back, volume / 100), 10, 5, 4, "#eef0f3");
+  sliderKnob(su - 5, lerp(front - 5, back, volume / 100), 10, 5, 4);
 }
 
 // Widget mode: just the record standing upright on a see-through background.
@@ -384,6 +394,10 @@ let hop = null; // start time of an arm hop
 let widget = false; // widget mode: small see-through window with only the record
 let volume = 100; // Spotify's volume, 0..100
 let dragging = false; // dragging the volume slider
+let pressed = false; // start/stop button held down
+let armUp = 1; // 0 arm down on the record .. 1 lifted (paused); eases toward the play state
+const ARM_HOVER = 4; // how high the arm hovers while paused
+const ARM_EASE = 0.3; // seconds to lift / lower
 
 const wallOf = (c) => (c ? c.wall : DEFAULT_WALL);
 const standItems = (list) => list.map((cover, i) => ({ cover, ...standSlot(i) }));
@@ -399,6 +413,7 @@ function pose(now) {
     wall: wallOf(shown),
   };
   if (hop !== null) p.lift = Math.sin(Math.PI * Math.min((now - hop) / 1000 / HOP, 1)) * 3;
+  p.lift = Math.max(p.lift, ease(armUp) * ARM_HOVER); // hovers above the record while paused
   if (!swap) return p;
 
   let t = (now - swap.start) / 1000, i = 0;
@@ -408,7 +423,7 @@ function pose(now) {
   p.flip = { k: Math.min((now - swap.start) / 1000 / FLIP, 1), from, to };
 
   p.swing = i === 0 ? k : i === 9 ? 1 - k : 1;
-  p.lift = p.swing * 3;
+  p.lift = Math.max(p.swing * 3, ease(armUp) * ARM_HOVER);
   p.rec = PATH[i] && { ...mix(PATH[i][0], PATH[i][1], k), cover: i < 4 ? from : to, clip: i === 3 || i === 6 };
   p.display = i < 5 ? from : to;
   p.wall = i < 5 ? wallOf(from) : i > 5 ? wallOf(to) : mixWall(wallOf(from), wallOf(to), k);
@@ -436,9 +451,11 @@ function tick(now) {
   const target = playing && !swap ? 1 : 0; // record stops while being swapped
   speed += Math.max(-dt / EASE, Math.min(dt / EASE, target - speed));
   turn += speed * dt * 2 * Math.PI * RPM / 60;
+  const armTarget = playing ? 0 : 1;
+  armUp += Math.max(-dt / ARM_EASE, Math.min(dt / ARM_EASE, armTarget - armUp));
   draw(pose(now));
   // Stop the loop once nothing moves, so a paused app uses no CPU.
-  if (playing || speed > 0 || swap || hop !== null) requestAnimationFrame(tick);
+  if (playing || speed > 0 || swap || hop !== null || armUp !== armTarget) requestAnimationFrame(tick);
   else running = false;
 }
 
@@ -524,6 +541,25 @@ function sliderVolume([x, y], strict) {
   if (strict && (t < -0.15 || t > 1.15 || Math.abs(x - lerp(bx, fx, t)) > 7)) return null;
   return (1 - t) * 100;
 }
+// Start/stop button: press it to play/pause Spotify. The arm follows when Spotify reports the new state.
+function onStart([x, y]) {
+  const { u, v, w, d } = START;
+  const pts = [P(u, v, 3), P(u + w, v, 3), P(u + w, v + d), P(u, v + d)];
+  const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+  return x >= Math.min(...xs) - 1 && x <= Math.max(...xs) + 1 && y >= Math.min(...ys) - 1 && y <= Math.max(...ys) + 1;
+}
+scene.addEventListener("mousedown", (e) => {
+  if (widget || !onStart(scenePoint(e))) return;
+  pressed = true;
+  if (!running) draw(pose(performance.now()));
+  window.__TAURI__.core.invoke("play_pause").catch(() => {});
+});
+window.addEventListener("mouseup", () => {
+  if (!pressed) return;
+  pressed = false;
+  if (!running) draw(pose(performance.now()));
+});
+
 scene.addEventListener("mousedown", (e) => {
   if (widget) return;
   const v = sliderVolume(scenePoint(e), true);

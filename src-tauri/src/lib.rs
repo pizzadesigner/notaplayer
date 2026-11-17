@@ -60,6 +60,11 @@ return """#;
         let _ = std::process::Command::new("osascript").args(["-e", &script]).output();
     }
 
+    pub fn play_pause() {
+        let script = r#"if application "Spotify" is running then tell application "Spotify" to playpause"#;
+        let _ = std::process::Command::new("osascript").args(["-e", script]).output();
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "VinylSpotifyObserver"]
@@ -109,6 +114,11 @@ async fn set_volume(volume: u8) {
     mac::set_volume(volume)
 }
 
+#[tauri::command]
+async fn play_pause() {
+    mac::play_pause()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -132,7 +142,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![current_track, set_volume])
+        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
