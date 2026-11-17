@@ -353,6 +353,7 @@ function draw(p) {
   }
 
   tonearm(p.swing, p.lift);
+  if (showName) nameStrip(p.now);
   g.restore();
 }
 
@@ -409,7 +410,7 @@ const filed = (from, list) => (from ? [from, ...list] : list).slice(0, STAND_SIZ
 // Where everything is at time `now`.
 function pose(now) {
   const p = {
-    turn, drift: (turn * 180 / Math.PI * 0.05) % 4, shine: speed * (0.5 + 0.5 * Math.sin(now / 80)),
+    now, turn, drift: (turn * 180 / Math.PI * 0.05) % 4, shine: speed * (0.5 + 0.5 * Math.sin(now / 80)),
     swing: 0, lift: 0,
     rec: { ...ON_PLATTER, cover: shown, clip: false },
     display: shown, displayX: SLEEVE_X, stand: standItems(stand),
@@ -453,14 +454,12 @@ function tick(now) {
   if (hop !== null && now - hop > HOP * 1000) hop = null;
   const target = playing && !swap ? 1 : 0; // record stops while being swapped
   speed += Math.max(-dt / EASE, Math.min(dt / EASE, target - speed));
-  turn += speed * dt * 2 * Math.PI * RPM / 60 + scrub * dt;
-  scrub *= Math.exp(-dt / SCRUB_FADE); // extra spin from seeking fades out
-  if (Math.abs(scrub) < 0.05) scrub = 0;
+  if (!holding) turn += speed * dt * 2 * Math.PI * RPM / 60; // a held record follows the hand instead
   const armTarget = playing ? 0 : 1;
   armUp += Math.max(-dt / ARM_EASE, Math.min(dt / ARM_EASE, armTarget - armUp));
   draw(pose(now));
   // Stop the loop once nothing moves, so a paused app uses no CPU.
-  if (playing || speed > 0 || swap || hop !== null || armUp !== armTarget || scrub) requestAnimationFrame(tick);
+  if (playing || speed > 0 || swap || hop !== null || armUp !== armTarget || nameScrolls()) requestAnimationFrame(tick);
   else running = false;
 }
 
@@ -477,6 +476,7 @@ function wake() {
 
 async function show(t) {
   playing = !!t?.playing;
+  setName(t ? `${t.name} — ${t.artist}` : "");
   if (t && !dragging) volume = t.volume;
   const url = t?.artwork_url || null;
   const newTrack = (t?.id ?? null) !== trackId;
@@ -566,7 +566,20 @@ function hitSleeves([x, y]) {
   if (x >= SLEEVE_X && x < SLEEVE_X + SLEEVE) return "album";
   return null;
 }
-const onControl = (pt) => onStart(pt) || sliderVolume(pt, true) !== null || hitSleeves(pt) !== null;
+// Turn the record by hand to move through the song: a full clockwise turn (the way it plays) = 30 s
+// forward, anticlockwise = back. The music keeps playing and jumps once you let go.
+const SEEK_PER_TURN = 30;
+let holding = null; // { angle, seconds } while the record is held
+// Pointer angle around the record, measured on its tilted oval; inside = on the record.
+function recordAngle([x, y]) {
+  const h = PLAT.t + 1, c = P(PLAT.u, PLAT.v, h);
+  const ex = P(PLAT.u + REC_R, PLAT.v, h), ey = P(PLAT.u, PLAT.v + REC_R, h);
+  const nx = (x - c[0]) / Math.hypot(ex[0] - c[0], ex[1] - c[1]);
+  const ny = (y - c[1]) / Math.hypot(ey[0] - c[0], ey[1] - c[1]);
+  return { angle: Math.atan2(ny, nx), inside: nx * nx + ny * ny <= 1 };
+}
+const onRecord = (pt) => recordAngle(pt).inside;
+const onControl = (pt) => onStart(pt) || sliderVolume(pt, true) !== null || hitSleeves(pt) !== null || onRecord(pt);
 
 // One press handler: controls first (window and scene widget), otherwise drag the widget around.
 scene.addEventListener("mousedown", (e) => {
@@ -589,54 +602,56 @@ scene.addEventListener("mousedown", (e) => {
       window.__TAURI__.core.invoke("skip", { forward: hit === "album" }).catch(() => {});
       return;
     }
+    if (!swap && onRecord(pt)) {
+      holding = { angle: recordAngle(pt).angle, seconds: 0 };
+      scene.style.cursor = "grabbing";
+      return;
+    }
   }
   if (mode !== "window" && e.detail === 1) win.startDragging(); // widgets have no title bar to drag by
+});
+// Right-click anywhere: the app menu (looks, song name, quit) at the pointer.
+window.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  window.__TAURI__.core.invoke("context_menu").catch(() => {});
 });
 scene.addEventListener("dblclick", (e) => {
   if (mode !== "record" && onControl(scenePoint(e))) return; // double-clicking a control just uses it twice
   setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
 });
-window.addEventListener("mousemove", (e) => { if (dragging) setVolume(sliderVolume(scenePoint(e))); });
+window.addEventListener("mousemove", (e) => {
+  if (dragging) setVolume(sliderVolume(scenePoint(e)));
+  if (holding) {
+    const a = recordAngle(scenePoint(e)).angle;
+    const d = Math.atan2(Math.sin(a - holding.angle), Math.cos(a - holding.angle)); // shortest way round
+    holding.angle = a;
+    holding.seconds += d / (2 * Math.PI) * SEEK_PER_TURN;
+    turn += d;
+    if (!running) draw(pose(performance.now()));
+  }
+});
 window.addEventListener("mouseup", () => {
   dragging = false;
+  if (holding) {
+    const seconds = holding.seconds;
+    holding = null;
+    scene.style.cursor = "grab";
+    if (Math.abs(seconds) >= 0.5) window.__TAURI__.core.invoke("seek_by", { seconds }).catch(() => {});
+  }
   if (!pressed) return;
   pressed = false;
   if (!running) draw(pose(performance.now()));
 });
-// Sideways scroll moves through the song: swipe right = back, left = forward (the platter turns
-// leftward at the front, so pushing it right winds it back). Up/down stays volume.
-// Jumps are collected and sent once the swipe pauses; the record spins fast in that direction meanwhile.
-const SEEK_PER_PX = 0.07; // seconds per scroll pixel, ~10s for a short swipe
-const SCRUB_SPIN = 1.5; // extra spin (radians/s) per second jumped
-const SCRUB_FADE = 0.25; // seconds for the extra spin to die down
-let scrub = 0, seekWant = 0, seekTimer = null, seekBusy = false;
-async function sendSeek() {
-  seekTimer = null;
-  if (seekBusy) return;
-  seekBusy = true;
-  while (seekWant) {
-    const seconds = seekWant;
-    seekWant = 0;
-    await window.__TAURI__.core.invoke("seek_by", { seconds }).catch(() => {});
-  }
-  seekBusy = false;
-}
-function seek(seconds) {
-  seekWant += seconds;
-  scrub += seconds * SCRUB_SPIN;
-  clearTimeout(seekTimer);
-  seekTimer = setTimeout(sendSeek, 150);
-  wake();
-}
+// Scroll changes the volume (sideways scrolling is ignored so it can't change it by accident).
 scene.addEventListener("wheel", (e) => {
   if (mode === "record") return;
   e.preventDefault();
-  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) seek(e.deltaX * SEEK_PER_PX);
-  else setVolume(volume - e.deltaY * 0.25);
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) setVolume(volume - e.deltaY * 0.25);
 }, { passive: false });
 scene.addEventListener("mousemove", (e) => {
-  const h = mode === "record" ? null : hitSleeves(scenePoint(e));
-  scene.style.cursor = h ? "pointer" : "";
+  const pt = scenePoint(e);
+  const h = mode === "record" ? null : hitSleeves(pt);
+  scene.style.cursor = holding ? "grabbing" : h ? "pointer" : mode !== "record" && !swap && onRecord(pt) ? "grab" : "";
   if (h === hover) return;
   hover = h;
   if (!running) draw(pose(performance.now()));
@@ -644,6 +659,104 @@ scene.addEventListener("mousemove", (e) => {
 scene.addEventListener("mouseleave", () => {
   hover = null;
   if (!running) draw(pose(performance.now()));
+});
+
+// Song name strip along the bottom (window and scene widget), switched in the menu.
+// Text uses a 5×7 pixel font; names with characters it doesn't have (Cyrillic, Japanese, ...) fall back
+// to the system font cut to hard pixels.
+const STRIP_H = 12, NAME_SPEED = 18; // strip height in pixels, scroll speed in pixels per second
+const TEXT_COLOR = [0xe8, 0xea, 0xee];
+// One base-32 digit per row (7 rows + 2 for descenders), bit 4 = left column.
+const FONT = {" ":"","!":"4444404","\"":"aaa","#":"aavavaa","$":"4fke5u4","%":"op248j3","&":"cik8lid","'":"448","(":"2488842",")":"8422248","*":"04lel40","+":"044v440",",":"00000c48","-":"000e",".":"00000cc","/":"01248g0","0":"ehjlphe","1":"4c4444e","2":"eh1248v","3":"v2421he","4":"26aiv22","5":"vgu11he","6":"68guhhe","7":"v124888","8":"ehhehhe","9":"ehhf12c",":":"0cc0cc0",";":"0cc0c48","<":"248g842","=":"00v0v",">":"8421248","?":"eh12404","@":"eh1dlle","A":"ehhhvhh","B":"uhhuhhu","C":"ehggghe","D":"sihhhis","E":"vgguggv","F":"vgguggg","G":"ehgnhhf","H":"hhhvhhh","I":"e44444e","J":"72222ic","K":"hikokih","L":"ggggggv","M":"hrllhhh","N":"hhpljhh","O":"ehhhhhe","P":"uhhuggg","Q":"ehhhlid","R":"uhhukih","S":"fgge11u","T":"v444444","U":"hhhhhhe","V":"hhhhha4","W":"hhhllla","X":"hha4ahh","Y":"hhha444","Z":"v1248gv","[":"e88888e","\\":"0g84210","]":"e22222e","^":"4ah","_":"000000v","`":"842","a":"00e1fhf","b":"gguhhhu","c":"00egghe","d":"11fhhhf","e":"00ehvge","f":"688s888","g":"00fhhhf1e","h":"gguhhhh","i":"40c444e","j":"2062222ic","k":"ggikoki","l":"c44444e","m":"00qllll","n":"00uhhhh","o":"00ehhhe","p":"00uhhhugg","q":"00fhhhf11","r":"00mpggg","s":"00fge1u","t":"88s8896","u":"00hhhjd","v":"00hhha4","w":"00hhlla","x":"00ha4ah","y":"00hhhhf1e","z":"00v248v","{":"2448442","|":"4444444","}":"8442448","~":"008l2","\u0131":"00c444e"};
+const SAME = { "’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "...", "\u00a0": " " };
+const MARKS = { "\u0300": [1], "\u0301": [3], "\u0302": [1, 3], "\u030c": [1, 3], "\u0308": [1, 3], "\u0303": [1, 2, 3], "\u030a": [2] }; // accent columns
+// Pixel-font image of the text, or null if a character is missing from the font.
+function pixelText(text) {
+  const glyphs = [];
+  for (const ch of text.normalize("NFD")) {
+    if (MARKS[ch] && glyphs.length) { glyphs[glyphs.length - 1].marks.push(...MARKS[ch]); continue; }
+    if (/\p{M}/u.test(ch)) continue; // other accents are left off
+    for (const c of SAME[ch] ?? ch) {
+      if (!(c in FONT)) return null;
+      glyphs.push({ c, marks: [] });
+    }
+  }
+  const cells = glyphs.map(({ c, marks }) => {
+    if (c === "i" && marks.length) c = "ı"; // accent replaces the dot
+    const rows = [...FONT[c]].map((d) => parseInt(d, 32));
+    const cols = rows.flatMap((r) => [0, 1, 2, 3, 4].filter((x) => r & (16 >> x))).concat(marks);
+    const lo = cols.length ? Math.min(...cols) : 0, w = cols.length ? Math.max(...cols) - lo + 1 : 2;
+    const markRow = rows[0] || rows[1] ? -1 : 0; // above capitals, or with a 1-pixel gap over small letters
+    return { rows, marks, lo, w, markRow };
+  });
+  const width = cells.reduce((a, g) => a + g.w + 1, 1);
+  const c = new OffscreenCanvas(width, STRIP_H), x = c.getContext("2d");
+  const d = x.createImageData(width, STRIP_H);
+  const dot = (px, py) => {
+    if (py < 0 || py >= STRIP_H) return;
+    const i = (py * width + px) * 4;
+    [d.data[i], d.data[i + 1], d.data[i + 2]] = TEXT_COLOR;
+    d.data[i + 3] = 255;
+  };
+  let pen = 1;
+  for (const g of cells) {
+    g.rows.forEach((r, y) => [0, 1, 2, 3, 4].forEach((col) => r & (16 >> col) && dot(pen + col - g.lo, y + 2)));
+    g.marks.forEach((col) => dot(pen + col - g.lo, g.markRow + 2));
+    pen += g.w + 1;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+// Fallback: system font, cut to hard pixels so it stays crisp.
+function systemText(text) {
+  const c = new OffscreenCanvas(1, STRIP_H), x = c.getContext("2d");
+  const font = "9px -apple-system, 'Segoe UI', sans-serif";
+  x.font = font;
+  c.width = Math.ceil(x.measureText(text).width) + 2;
+  x.font = font;
+  x.textBaseline = "middle";
+  x.fillStyle = "#fff";
+  x.fillText(text, 1, STRIP_H / 2 + 0.5);
+  const d = x.getImageData(0, 0, c.width, STRIP_H);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const on = d.data[i + 3] > 110;
+    [d.data[i], d.data[i + 1], d.data[i + 2]] = TEXT_COLOR;
+    d.data[i + 3] = on ? 255 : 0;
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+let showName = (() => { try { return localStorage.getItem("show-name") === "1"; } catch { return false; } })();
+let nameText = "", nameImg = null;
+function setName(text) {
+  if (text === nameText) return;
+  nameText = text;
+  nameImg = text ? pixelText(text) ?? systemText(text) : null;
+}
+const nameScrolls = () => showName && mode !== "record" && !!nameImg && nameImg.width > 160 - 8;
+function nameStrip(now) {
+  if (!nameImg) return;
+  const y = VIEW.y + 160 - STRIP_H;
+  rect(VIEW.x, y, 160, STRIP_H, "rgba(12,13,20,.85)");
+  rect(VIEW.x, y, 160, 1, "rgba(255,255,255,.12)");
+  clipTo(VIEW.x + 3, y, 160 - 6, STRIP_H);
+  if (!nameScrolls()) {
+    g.drawImage(nameImg, Math.round(VIEW.x + (160 - nameImg.width) / 2), y);
+  } else {
+    // Old-display ticker: the text runs left and comes round again after a gap.
+    const loop = nameImg.width + 40, off = Math.floor((now / 1000 * NAME_SPEED) % loop);
+    g.drawImage(nameImg, VIEW.x + 4 - off, y);
+    g.drawImage(nameImg, VIEW.x + 4 - off + loop, y);
+  }
+  g.restore();
+}
+window.__TAURI__.core.invoke("show_name_checked", { on: showName }).catch(() => {});
+window.__TAURI__.event.listen("toggle-name", () => {
+  showName = !showName;
+  try { localStorage.setItem("show-name", showName ? "1" : "0"); } catch {}
+  window.__TAURI__.core.invoke("show_name_checked", { on: showName }).catch(() => {}); // keep the checkmark in step
+  draw(pose(performance.now()));
+  wake();
 });
 
 draw(pose(0));

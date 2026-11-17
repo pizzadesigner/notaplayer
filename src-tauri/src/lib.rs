@@ -85,7 +85,8 @@ return """#;
 
     // Back always goes to the previous song: rewinding to 0 first stops Spotify from just restarting this one.
     pub fn skip(forward: bool) {
-        let action = if forward { "next track" } else { "set player position to 0\n    previous track" };
+        // Spotify needs a moment to take the rewind, or "previous" just restarts the song.
+        let action = if forward { "next track" } else { "if player position > 2 then\n      set player position to 0\n      delay 0.3\n    end if\n    previous track" };
         let script = format!("if application \"Spotify\" is running then\n  tell application \"Spotify\"\n    {action}\n  end tell\nend if");
         let _ = std::process::Command::new("osascript").args(["-e", &script]).output();
     }
@@ -164,31 +165,51 @@ async fn seek_by(seconds: f64) {
     }
 }
 
+// Menu bar checkmark for the song name, set from the page's saved setting.
+#[tauri::command]
+fn show_name_checked(item: tauri::State<'_, tauri::menu::CheckMenuItem<tauri::Wry>>, on: bool) {
+    let _ = item.set_checked(on);
+}
+
+// Right-click on the scene: the same menu as the menu bar icon, at the pointer.
+#[tauri::command]
+fn context_menu(window: tauri::Window, menu: tauri::State<'_, tauri::menu::Menu<tauri::Wry>>) {
+    let _ = window.popup_menu(&*menu);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             player::listen(app.handle().clone());
-            // Menu bar icon: switch modes (the page does the switching) or quit.
-            use tauri::menu::{Menu, MenuItem};
-            use tauri::Emitter;
+            // One menu, shown from the menu bar icon and by right-clicking the scene
+            // (the icon can end up hidden behind a MacBook notch). Switch looks, toggle the name, quit.
+            use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+            use tauri::{Emitter, Manager};
             let window = MenuItem::with_id(app, "window", "Window", true, None::<&str>)?;
             let scene = MenuItem::with_id(app, "scene", "Scene widget", true, None::<&str>)?;
             let record = MenuItem::with_id(app, "record", "Record widget", true, None::<&str>)?;
+            let names = CheckMenuItem::with_id(app, "names", "Show song name", true, false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit notaplayer", true, None::<&str>)?;
+            app.manage(names.clone()); // the page sets its saved state at start (show_name_checked)
+            let menu = Menu::with_items(app, &[&window, &scene, &record, &PredefinedMenuItem::separator(app)?, &names, &PredefinedMenuItem::separator(app)?, &quit])?;
+            app.manage(menu.clone()); // for context_menu
+            app.on_menu_event(|app, e| match e.id.as_ref() {
+                "quit" => app.exit(0),
+                "names" => {
+                    let _ = app.emit("toggle-name", ()); // the page flips it and sets the checkmark back
+                }
+                mode => {
+                    let _ = app.emit("mode", mode);
+                }
+            });
             tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .menu(&Menu::with_items(app, &[&window, &scene, &record, &quit])?)
-                .on_menu_event(|app, e| match e.id.as_ref() {
-                    "quit" => app.exit(0),
-                    mode => {
-                        let _ = app.emit("mode", mode);
-                    }
-                })
+                .menu(&menu)
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip, seek_by])
+        .invoke_handler(tauri::generate_handler![current_track, set_volume, play_pause, skip, seek_by, show_name_checked, context_menu])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
