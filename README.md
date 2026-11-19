@@ -2,20 +2,23 @@
 
 A small pixel-art music player for your desktop. It shows the music you are playing on a pixel-art device, with the album cover on the disc. Pick the device in the menu under **Interface**:
 
-- **Vinyl**: a turntable with the album's sleeve on the wall.
-- **CD**: a portable CD player with the album's jewel case on the desk and a wheel of your recent songs.
+| Vinyl | CD | Jukebox |
+| :---: | :---: | :---: |
+| <img src="docs/vinyl.png" width="260" alt="Vinyl interface: turntable with the album sleeve on the wall"> | <img src="docs/cd.png" width="260" alt="CD interface: portable CD player, jewel case and album wheel"> | <img src="docs/jukebox.png" width="260" alt="Jukebox interface: retro jukebox with a rack of 45s in its glass dome"> |
+| Turntable with the album's sleeve on the wall | Portable CD player with the jewel case and a wheel of your recent albums | Retro jukebox with a rack of 45s and a title card |
 
 ## What it does
 
 - **Follows your music**
   - macOS: Spotify.
   - Windows: anything in the Windows media panel (Spotify, browsers such as YouTube in Chrome or Edge, Apple Music, VLC and more).
-- **Song name** (optional): turn on **Show song name** in the menu to see the title and artist in a pixel-font strip along the bottom. Long names scroll by.
+- **Song name** (optional, vinyl and CD): turn on **Show song name** in the menu to see the title and artist in a pixel-font strip along the bottom. Long names scroll by. The jukebox shows it on its own title card.
+- **No cover?** Songs without a cover (often from browsers) get a black placeholder with a music note.
 - **Volume**: scroll up/down anywhere on the scene. It changes the music app's volume only, not the whole computer.
 - **Three looks**: double-click an empty spot to cycle between them, or pick one from the menu.
   - **Window**: the full scene in a normal window.
   - **Scene widget**: the full scene, small, with rounded corners, sitting on the desktop.
-  - **Disc widget**: just the spinning record or CD. On an album change it flips like a coin.
+  - **Disc widget**: just the spinning record, CD or 45. On a change it flips like a coin.
 
   Widgets sit behind your other windows and can be dragged from any empty spot.
 - **Menu**: right-click anywhere on the scene, or use the menu bar / tray icon. It switches looks and interfaces, turns the song name on or off, and quits the app. On MacBooks with a notch the menu bar icon can be hidden when the menu bar is full; right-click always works.
@@ -25,7 +28,8 @@ All settings (interface, look, song name, widget position) are remembered.
 ### Vinyl
 
 - **Spinning record**: turns at 33⅓ RPM while playing and slows to a stop on pause. While paused, the tonearm lifts and hovers above the record.
-- **Album changes**: the record goes back into its sleeve, the sleeve slides into the stand on the right, and the new album slides out with its record. The wall takes on the color of the new cover.
+- **Songs from the same album**: the record keeps playing; the tonearm just hops.
+- **Album changes**: the record goes back into its sleeve, the sleeve slides into the stand on the right, and the new album slides out with its record. Going back to the previous album takes its sleeve back out of the stand. The wall takes on the color of the new cover.
 - **Album stand**: the last 3 albums you played peek in from the right edge.
 - **Controls**
   - Start/stop button (front left): play / pause.
@@ -37,14 +41,25 @@ All settings (interface, look, song name, widget position) are remembered.
 
 - **Spinning disc**: the cover is printed over the whole CD, which spins under a clear window in the lid.
 - **LCD**: shows the track number and the running time; the time blinks while paused.
-- **Song changes**: the jewel case on the desk flies into the wheel on the right and a fresh case pops up from the side.
+- **Songs from the same album**: the disc just keeps playing; only the LCD changes.
 - **Album changes**: the lid opens, the disc goes into its case, the case flies into the wheel, the new album's case pops up, its disc drops in and the lid closes.
-- **Song wheel**: a clear acrylic wheel holding your last 16 songs; it turns one slot on every song.
+- **Album wheel**: a clear acrylic wheel holding your last 16 albums. Going back to the previous album takes its case back out of the wheel.
 - **Controls**
   - ▶‖: play / pause.
   - ◀◀ / ▶▶: click for the previous / next song, hold to wind back / forward through the song.
   - − / +: volume.
   - Click the case on the desk: next song. Click the wheel: previous song.
+
+### Jukebox
+
+- **The dome**: a rack of small 45s with your recent songs (their covers on the labels), a gripper arm and a little turntable, with bulbs chasing around the back while it plays.
+- **Every song gets its own record**: on each new song the gripper files the record into the rack and fetches the next one. Going back to the previous song runs it in reverse: the record goes back out and the previous one comes out of the rack.
+- **Lights**: the tubes glow in the album's color and pulse while playing.
+- **Title card**: always shows the song and artist, scrolling when it's long.
+- **Controls**
+  - Big red button: play / pause.
+  - ◀ / ▶: previous / next song.
+  - Volume knob: press on it and turn.
 
 ## Install
 
