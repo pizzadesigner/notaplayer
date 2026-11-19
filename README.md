@@ -2,10 +2,10 @@
 
 A small pixel-art music player for your desktop. It shows the music you are playing on a pixel-art device, with the album cover on the disc. Pick the device in the menu under **Interface**:
 
-| Vinyl | CD | Jukebox |
-| :---: | :---: | :---: |
-| <img src="docs/vinyl.png" width="260" alt="Vinyl interface: turntable with the album sleeve on the wall"> | <img src="docs/cd.png" width="260" alt="CD interface: portable CD player, jewel case and album wheel"> | <img src="docs/jukebox.png" width="260" alt="Jukebox interface: retro jukebox with a rack of 45s in its glass dome"> |
-| Turntable with the album's sleeve on the wall | Portable CD player with the jewel case and a wheel of your recent albums | Retro jukebox with a rack of 45s and a title card |
+| Vinyl | CD | Jukebox | Cassette |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/vinyl.png" width="200" alt="Vinyl interface: turntable with the album sleeve on the wall"> | <img src="docs/cd.png" width="200" alt="CD interface: portable CD player, jewel case and album wheel"> | <img src="docs/jukebox.png" width="200" alt="Jukebox interface: retro jukebox with a rack of 45s in its glass dome"> | <img src="docs/cassette.png" width="200" alt="Cassette interface: retro cassette player with headphones, tape case and wall rack"> |
+| Turntable with the album's sleeve on the wall | Portable CD player with the jewel case and a wheel of your recent albums | Retro jukebox with a rack of 45s and a title card | Retro cassette player with headphones, the tape case and a wall rack of past albums |
 
 ## What it does
 
@@ -18,7 +18,7 @@ A small pixel-art music player for your desktop. It shows the music you are play
 - **Three looks**: double-click an empty spot to cycle between them, or pick one from the menu.
   - **Window**: the full scene in a normal window.
   - **Scene widget**: the full scene, small, with rounded corners, sitting on the desktop.
-  - **Disc widget**: just the spinning record, CD or 45. On a change it flips like a coin.
+  - **Disc widget**: just the spinning record, CD, 45 or cassette. On a change it flips like a coin.
 
   Widgets sit behind your other windows and can be dragged from any empty spot.
 - **Menu**: right-click anywhere on the scene, or use the menu bar / tray icon. It switches looks and interfaces, turns the song name on or off, and quits the app. On MacBooks with a notch the menu bar icon can be hidden when the menu bar is full; right-click always works.
@@ -60,6 +60,18 @@ All settings (interface, look, song name, widget position) are remembered.
   - Big red button: play / pause.
   - ◀ / ▶: previous / next song.
   - Volume knob: press on it and turn.
+
+### Cassette
+
+- **The tape**: a labelled tape sits behind the window with its reels turning; the tape moves from one reel to the other as the song plays.
+- **Counter**: shows the song's running time.
+- **Songs from the same album**: the tape fast-winds to the next song.
+- **Album changes**: the door swings open, the tape goes into its case, the case goes up into the wall rack and the next album's case comes in. Going back to the previous album takes its case back out of the rack.
+- **Controls**
+  - ▶ (green): play. ■ (orange): pause.
+  - ◀◀ / ▶▶: click for the previous / next song, hold to wind back / forward through the song.
+  - Volume slider on the side.
+  - Click the case: next song. Click the rack: previous song.
 
 ## Install
 
