@@ -243,8 +243,9 @@ function jewelCase(c, x, y, lift = 0, alpha = 1) {
 // Wheel of past songs: clear acrylic disc on a chrome tube stand, slim cases standing out like spokes.
 // Slots without a song hold plain cases in the colors of the reference photo.
 const BLANKS = ["#e8c33a", "#d95d8f", "#4fb36a", "#22252c", "#7fb5e0", "#f08a3c", "#c9cdd4", "#8e5bb5"];
-// k: 0..1 how far the wheel has turned to free the left slot; empty: the newest case is still on its way.
-function wheel(songs, S, lift, k, empty) {
+// at(j): which slot (can be in between while turning) history case j stands in; skip0: case 0 isn't in
+// the wheel right now; extra: a case that is in the wheel but no longer in the history (going back).
+function wheel(songs, S, lift, at, skip0, extra) {
   const { x: cx, r } = WHEEL, cy = WHEEL.y - lift;
   // Chrome stand: a bent tube loop from behind the hub down to a U-shaped foot on the desk.
   const tube = (a, b) => { seg([a[0], a[1] + 1], [b[0], b[1] + 1], "#6c717c"); seg(a, b, "#c9cdd4"); seg([a[0] - 1, a[1]], [b[0] - 1, b[1]], "#ffffff"); };
@@ -263,15 +264,17 @@ function wheel(songs, S, lift, k, empty) {
   const step = 360 / WHEEL.slots;
   for (let sl = 0; sl < WHEEL.slots; sl++) {
     // Slot walls turn with the wheel: two thin clear fins either side of each case, with a gap between slots.
-    const a = (180 + (sl - 1 + k) * step) * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+    const a = (180 + (sl + at(1) - 1) * step) * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
     for (const side of [-3, 3]) seg([cx + dx * 10 + nx * side, cy + dy * 10 + ny * side], [cx + dx * (r - 1) + nx * side, cy + dy * (r - 1) + ny * side], "rgba(255,255,255,.3)");
     px(cx + dx * r, cy + dy * r, "rgba(60,70,80,.6)"); // notch in the rim
   }
   // Cases as spokes; on a song change everything turns one slot and the newest comes in at the left.
-  for (let j = 0; j < WHEEL.slots; j++) {
-    const c = songs[j];
-    if (j === 0 && empty) continue; // still on its way in
-    const a = (180 + (j === 0 ? 0 : j - 1 + k) * 360 / WHEEL.slots) * Math.PI / 180;
+  const cases = [];
+  for (let j = 0; j < WHEEL.slots + 1; j++) if (!(j === 0 && skip0)) cases.push({ c: songs[j], j, slot: at(j) });
+  if (extra) cases.push({ c: extra.cover, j: -1, slot: extra.slot });
+  for (const { c, j, slot } of cases) {
+    if (slot > WHEEL.slots - 0.5 && !c) continue; // blank pushed past the last slot
+    const a = (180 + slot * 360 / WHEEL.slots) * Math.PI / 180;
     const dx = Math.cos(a), dy = Math.sin(a), nx = -dy * 1.2, ny = dx * 1.2; // slim cases, a little thinner than their slot
     const p0 = [cx + dx * 11, cy + dy * 11], p1 = [cx + dx * (r - 3), cy + dy * (r - 3)];
     const col = c ? `rgb(${c.avg.join(",")})` : BLANKS[(((j - S.songCount) % BLANKS.length) + BLANKS.length) % BLANKS.length];
@@ -334,17 +337,34 @@ export default {
     p.lid = 0;
     p.cd = { ...IN_PLAYER, cover: S.shown, clip: false };
     p.caseX = CASE_X;
-    p.wheelK = 1;
-    p.empty = false;
+    p.at = (j) => j; // wheel slot of history case j
+    p.skip0 = false;
+    p.extra = null;
     p.fly = null;
     if (!sw) {
-      // Song change: the case flies into the wheel, then a fresh one pops up from the side.
-      if (S.songChange === null || !S.songs[0]) return;
+      if (S.songChange === null) return;
       const t = (p.now - S.songChange) / 1000;
-      p.wheelK = ease(Math.min(t / TURN_TIME, 1));
+      if (S.back && S.popped) {
+        // Back to the previous song: the case on the desk slides out to the side, then the previous song's
+        // case comes back out of the wheel to the desk while the wheel turns back.
+        const kb = ease(Math.min(Math.max(t - POP_TIME, 0) / FLY_TIME, 1));
+        p.at = (j) => j + 1 - kb;
+        if (t < POP_TIME) {
+          p.caseX = lerp(CASE_X, OFFSTAGE, ease(t / POP_TIME));
+          p.extra = { cover: S.popped, slot: 0 };
+        } else if (t < POP_TIME + FLY_TIME) {
+          p.fly = { cover: S.popped, k: 1 - kb };
+          p.display = null;
+        }
+        return;
+      }
+      // Next song: the case flies into the wheel, then a fresh one pops up from the side.
+      if (!S.songs[0]) return;
+      const k = ease(Math.min(t / TURN_TIME, 1));
+      p.at = (j) => (j === 0 ? 0 : j - 1 + k);
       if (t < FLY_TIME) {
         p.fly = { cover: S.songs[0], k: ease(t / FLY_TIME) };
-        p.empty = true;
+        p.skip0 = true;
         p.display = null;
       } else if (t < FLY_TIME + POP_TIME) {
         p.caseX = lerp(OFFSTAGE, CASE_X, popBack((t - FLY_TIME) / POP_TIME));
@@ -356,11 +376,19 @@ export default {
     p.cd = PATH[i] && { ...mix(PATH[i][0], PATH[i][1], k), cover: i < 4 ? from : to, clip: i === 3 || i === 6 };
     p.display = i < 5 ? from : to;
     p.wallMix = i < 5 ? 0 : i > 5 ? 1 : k;
-    if (i < 4) { p.wheelK = 0; p.empty = true; } // the wheel waits for the old album's case
+    if (sw.back && S.popped) {
+      // Album change going back: the old album's case slides out to the side, the previous one comes out of the wheel.
+      p.at = (j) => j + 1 - (i < 5 ? 0 : i === 5 ? k : 1);
+      if (i <= 4) p.extra = { cover: S.popped, slot: 0 };
+      if (i === 4) p.caseX = lerp(CASE_X, OFFSTAGE, k);
+      if (i === 5) { p.fly = { cover: to, k: 1 - k }; p.display = null; }
+      return;
+    }
+    if (i < 4) { p.at = (j) => j - 1; p.skip0 = true; } // the wheel waits for the old album's case
     if (i === 4) {
       p.fly = { cover: from, k };
-      p.wheelK = k;
-      p.empty = true;
+      p.at = (j) => j - 1 + k;
+      p.skip0 = true;
       p.display = null;
     }
     if (i === 5) p.caseX = lerp(OFFSTAGE, CASE_X, popBack(sw.k));
@@ -370,7 +398,7 @@ export default {
     const lift = (what) => (S.hover === what && !p.sw ? 2 : 0);
     if (p.display) rect(p.caseX + 3, CASE_Y + 3, CASE, CASE - 2, tone(p.wall, 0.65)); // case shadow on the wall
     jewelCase(p.display, p.caseX, CASE_Y, lift("album"));
-    wheel(S.songs, S, lift("stand"), p.wheelK, p.empty);
+    wheel(S.songs, S, lift("stand"), p.at, p.skip0, p.extra);
     // A disc on its way in or out of the case: only the part above the case shows.
     if (p.cd && p.cd.up > 0) {
       player({ ...p, cd: null }, S);

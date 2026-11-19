@@ -4,8 +4,9 @@
 import { W, VIEW, SLEEVE, DESK_Y, g, tone, rect, lerp, ease, clipTo } from "./pixel.js";
 import vinyl from "./vinyl.js";
 import cd from "./cd.js";
+import jukebox from "./jukebox.js";
 
-const IFACES = { vinyl, cd };
+const IFACES = { vinyl, cd, jukebox };
 const load = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let iface = IFACES[load("interface", "vinyl")] ?? vinyl;
@@ -25,6 +26,8 @@ const S = {
   songCover: undefined, // cover of the song playing now
   albums: [], // past album covers, newest first (vinyl stand)
   songs: [], // past song covers, newest first (CD wheel)
+  songIds: [], // track ids of `songs`, to notice going back to the previous song
+  back: false, // the last song change went back to the previous song
   songCount: 0, // how many songs have gone by (keeps the CD wheel's blank cases in step as it turns)
   playing: false,
   speed: 0, // 0 stopped .. 1 full speed
@@ -48,6 +51,7 @@ const S = {
 
 let nextKey, trackId, last = 0, running = false;
 let swap = null; // { start, from, to, albums } while an album change plays
+let swapAgain = false; // a song changed during a swap (interfaces that swap on every song)
 
 // Average cover color, made darker and stronger so light covers don't wash the wall out.
 function wallFrom([r, gr, b]) {
@@ -71,8 +75,8 @@ const wallOf = (c) => (c ? c.wall : DEFAULT_WALL);
 async function loadCover(url) {
   const img = new Image();
   img.crossOrigin = "anonymous";
-  img.src = url;
-  await img.decode();
+  // The load event (unlike img.decode()) also fires while the window is hidden or behind others.
+  await new Promise((done, fail) => { img.onload = done; img.onerror = fail; img.src = url; });
   const c = new OffscreenCanvas(SLEEVE, SLEEVE);
   const x = c.getContext("2d");
   x.imageSmoothingQuality = "high";
@@ -114,7 +118,7 @@ function pose(now) {
     let t = (now - swap.start) / 1000, i = 0;
     const ph = iface.swap;
     while (i < ph.length - 1 && t > ph[i]) t -= ph[i++];
-    p.sw = { i, k: ease(Math.min(t / ph[i], 1)), from: swap.from, to: swap.to, history: swap.albums, filed: filed(swap.from, swap.albums) };
+    p.sw = { i, k: ease(Math.min(t / ph[i], 1)), from: swap.from, to: swap.to, back: swap.back, history: swap.albums, filed: filed(swap.from, swap.albums) };
     p.flip = { k: Math.min((now - swap.start) / 1000 / FLIP, 1), from: swap.from, to: swap.to };
   }
   iface.pose(p, S, p.sw);
@@ -139,7 +143,7 @@ function draw(p) {
   rect(0, DESK_Y, W, W - DESK_Y, tone(p.wall, 0.5)); // desk
   rect(0, DESK_Y, W, 1, tone(p.wall, 0.7)); // desk edge catching light
   iface.draw(p, S);
-  if (showName) nameStrip(p.now);
+  if (showName && !iface.ownName) nameStrip(p.now); // interfaces with their own title display skip the strip
   g.restore();
 }
 const redraw = () => { if (!running) draw(pose(performance.now())); };
@@ -152,7 +156,8 @@ function tick(now) {
     S.shown = swap.to;
     swap = null;
     S.swapping = false;
-    if (S.next !== S.shown) startSwap(now); // album changed again mid-swap
+    if (S.next !== S.shown || (swapAgain && iface.swapEverySong)) startSwap(now); // changed again mid-swap
+    swapAgain = false;
   }
   if (S.songChange !== null && now - S.songChange > 1600) S.songChange = null; // longest song-change animation (CD wheel)
   const target = S.playing && !swap ? 1 : 0; // the disc stops while being swapped
@@ -168,7 +173,7 @@ function tick(now) {
 setInterval(redraw, 500); // slow clock for things that change while idle (blinking LCD)
 
 function startSwap(now) {
-  swap = { start: now, from: S.shown, to: S.next, albums: S.albums };
+  swap = { start: now, from: S.shown, to: S.next, albums: S.albums, back: S.back };
   S.swapping = true;
 }
 
@@ -192,13 +197,27 @@ async function show(t) {
   // What decides a new album: the cover picture, or without one the album name and artist.
   const key = !t ? null : url || `no-cover:${t.album}|${t.artist}`;
   const id = t?.id ?? null;
-  if (id !== trackId && trackId !== undefined) {
-    if (S.songCover !== undefined) S.songs = [S.songCover, ...S.songs].slice(0, SONGS_KEPT); // the song that just ended
-    S.songCount++;
+  const songChanged = id !== trackId && trackId !== undefined;
+  if (songChanged) {
+    // Back to the previous song: take it out of the history again. Otherwise file the song that just ended.
+    S.back = id !== null && id === S.songIds[0];
+    if (S.back) {
+      S.popped = S.songs[0]; // the record taken back out (interfaces animate it leaving the history)
+      S.songs = S.songs.slice(1);
+      S.songIds = S.songIds.slice(1);
+      S.songCount--;
+    } else {
+      if (S.songCover !== undefined) {
+        S.songs = [S.songCover, ...S.songs].slice(0, SONGS_KEPT);
+        S.songIds = [trackId, ...S.songIds].slice(0, SONGS_KEPT);
+      }
+      S.songCount++;
+    }
     S.songChange = now;
   }
   trackId = id;
-  if (key !== nextKey) {
+  const sameCover = key === nextKey;
+  if (!sameCover) {
     nextKey = key;
     const c = !t ? null : url ? await loadCover(url).catch(placeholder) : placeholder();
     if (nextKey !== key) return; // a newer track arrived while loading
@@ -206,8 +225,14 @@ async function show(t) {
     S.songCover = c;
     if (S.shown === undefined) S.shown = c; // first track: just show it
     else if (!swap) startSwap(performance.now());
+    else swapAgain = true;
   } else if (S.songCover === undefined) {
     S.songCover = S.next;
+  }
+  // Some interfaces (jukebox) change records on every song, not only on a new album.
+  if (iface.swapEverySong && songChanged && sameCover && S.shown !== undefined) {
+    if (!swap) startSwap(performance.now());
+    else swapAgain = true;
   }
   redraw();
   wake();
@@ -393,7 +418,7 @@ const FONT = {" ":"","!":"4444404","\"":"aaa","#":"aavavaa","$":"4fke5u4","%":"o
 const SAME = { "’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "...", "\u00a0": " " };
 const MARKS = { "\u0300": [1], "\u0301": [3], "\u0302": [1, 3], "\u030c": [1, 3], "\u0308": [1, 3], "\u0303": [1, 2, 3], "\u030a": [2] }; // accent columns
 // Pixel-font image of the text, or null if a character is missing from the font.
-function pixelText(text) {
+function pixelText(text, color = TEXT_COLOR) {
   const glyphs = [];
   for (const ch of text.normalize("NFD")) {
     if (MARKS[ch] && glyphs.length) { glyphs[glyphs.length - 1].marks.push(...MARKS[ch]); continue; }
@@ -417,7 +442,7 @@ function pixelText(text) {
   const dot = (px, py) => {
     if (py < 0 || py >= STRIP_H) return;
     const i = (py * width + px) * 4;
-    [d.data[i], d.data[i + 1], d.data[i + 2]] = TEXT_COLOR;
+    [d.data[i], d.data[i + 1], d.data[i + 2]] = color;
     d.data[i + 3] = 255;
   };
   let pen = 1;
@@ -430,7 +455,7 @@ function pixelText(text) {
   return c;
 }
 // Fallback: system font, cut to hard pixels so it stays crisp.
-function systemText(text) {
+function systemText(text, color = TEXT_COLOR) {
   const c = new OffscreenCanvas(1, STRIP_H), x = c.getContext("2d");
   const font = "9px -apple-system, 'Segoe UI', sans-serif";
   x.font = font;
@@ -442,7 +467,7 @@ function systemText(text) {
   const d = x.getImageData(0, 0, c.width, STRIP_H);
   for (let i = 0; i < d.data.length; i += 4) {
     const on = d.data[i + 3] > 110;
-    [d.data[i], d.data[i + 1], d.data[i + 2]] = TEXT_COLOR;
+    [d.data[i], d.data[i + 1], d.data[i + 2]] = color;
     d.data[i + 3] = on ? 255 : 0;
   }
   x.putImageData(d, 0, 0);
@@ -450,12 +475,23 @@ function systemText(text) {
 }
 let showName = (() => { try { return localStorage.getItem("show-name") === "1"; } catch { return false; } })();
 let nameText = "", nameImg = null;
+// Song text in any color for interfaces that show it themselves (jukebox title card); cached per text and color.
+const textCache = new Map();
+S.textImage = (color) => {
+  if (!nameText) return null;
+  const key = nameText + "|" + color;
+  if (!textCache.has(key)) {
+    if (textCache.size > 20) textCache.clear();
+    textCache.set(key, pixelText(nameText, color) ?? systemText(nameText, color));
+  }
+  return textCache.get(key);
+};
 function setName(text) {
   if (text === nameText) return;
   nameText = text;
   nameImg = text ? pixelText(text) ?? systemText(text) : null;
 }
-const nameScrolls = () => showName && S.mode !== "disc" && !!nameImg && nameImg.width > 160 - 8;
+const nameScrolls = () => (iface.ownName ? S.mode !== "disc" && !!nameText : showName && S.mode !== "disc" && !!nameImg && nameImg.width > 160 - 8); // keep animating a scrolling title
 function nameStrip(now) {
   if (!nameImg) return;
   const y = VIEW.y + 160 - STRIP_H;
