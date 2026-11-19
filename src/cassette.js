@@ -6,7 +6,7 @@ import { VIEW_RIGHT, g, px, rect, lerp, ease, mix, poly, seg, cover as drawCover
 
 const BODY = { x0: 66, x1: 138, y0: 64, y1: 168, side: 4 }; // front face, plus a darker right side
 const STRIP = 118; // the silver strip starts here
-const DOOR = { x0: 70, x1: 114, y0: 74, y1: 150 }; // the door, hinged at its bottom edge
+const DOOR = { x0: 70, x1: 114, y0: 74, y1: 150 }; // the door, hinged at its left edge
 const WIN = { x0: 75, x1: 109, y0: 80, y1: 140 }; // window in the door
 const TAPE = { x: 77, y: 83, w: 30, h: 54 }; // cassette seen through the window (standing, reels top and bottom)
 const REEL = { rMin: 4, rMax: 9 }; // tape pack radius range
@@ -205,9 +205,16 @@ const ICON = {
   ff: [[-3, -1], [-3, 0], [-2, 0], [-3, 1], [0, -1], [0, 0], [1, 0], [0, 1]],
   rew: [[2, -1], [2, 0], [1, 0], [2, 1], [-1, -1], [-1, 0], [-2, 0], [-1, 1]],
 };
+// The play key latches down as soon as it's pressed (and stop releases it at once), without waiting
+// for the music app to report the change; the latch lets go when the app agrees, or after 2s.
+let latch = null; // { playing, at }
 function keys(S) {
+  const now = performance.now();
+  if (S.pressed === "play" || S.pressed === "stop") latch = { playing: S.pressed === "play", at: now };
+  if (latch && !S.pressed && (S.playing === latch.playing || now - latch.at > 2000)) latch = null;
+  const playDown = S.pressed ? S.pressed === "play" : latch ? latch.playing : S.playing;
   for (const k of KEYS) {
-    const down = S.pressed === k.id || (k.id === "play" && S.playing && !S.pressed);
+    const down = S.pressed === k.id || (k.id === "play" && playDown);
     const sink = down ? 3 : 0, y = KEY_Y + sink, h = KEY_H - sink;
     rect(k.x + 1, KEY_Y + KEY_H, k.w, 1, "rgba(0,0,0,.35)");
     rect(k.x, y + h - 2, k.w, 2, "rgba(0,0,0,.3)"); // front side of the key
@@ -273,11 +280,16 @@ function player(p, S) {
   rect(SLIDER.x - 4, ky, 9, 1, "#ffffff");
   for (let x = SLIDER.x - 3; x < SLIDER.x + 5; x += 2) px(x, ky + 2, "#9aa0aa"); // grip ridges
   rect(x1 - 7, y1 - 9, 3, 3, "#1a1c22"); // power socket
-  door(p.door); // last: when it swings open it reaches over the silver strip
 }
 
 // Door: blue panel with a raised frame around the window. open 0..1: it swings open toward us around a
-// hinge on its right edge, getting narrower; past halfway you see its inside.
+// hinge on its left edge, getting narrower; past halfway you see its inside, reaching over the headphones.
+// The window glass stays see-through, so whatever is behind it shows.
+function glass(q) {
+  poly(q, "rgba(140,170,230,.14)");
+  const [a, b, , d] = q; // a glint across the glass
+  for (let k = 0; k < 3; k++) seg([lerp(a[0], b[0], 0.2 + k * 0.08), lerp(a[1], b[1], 0.2) + 2], [lerp(a[0], b[0], 0.05 + k * 0.08), lerp(a[1], d[1], 0.3)], "rgba(255,255,255,.18)");
+}
 function door(open) {
   const { x0, x1, y0, y1 } = DOOR;
   if (open < 0.02) {
@@ -305,22 +317,22 @@ function door(open) {
     seg([x1 - 1, 114], [x1 - 3, 112], "#dfe2e7");
     return;
   }
-  const a = open * Math.PI * 0.62, w = x1 - x0, c = Math.cos(a), grow = Math.sin(a) * 5; // the free edge comes closer: taller
-  rect(x1 - 1, y0, 2, y1 - y0, "#9aa0aa"); // hinge
-  if (c > 0) {
-    // Still facing us: the outer side, narrower, its free (left) edge larger because it's closer.
-    const xl = x1 - w * c;
-    poly([[xl, y0 - grow], [x1, y0], [x1, y1], [xl, y1 + grow]], "#2f4fa8");
-    poly([[lerp(xl, x1, 0.1), lerp(y0 - grow, y0, 0.1) + 6], [lerp(xl, x1, 0.9), lerp(y0 - grow, y0, 0.9) + 6], [lerp(xl, x1, 0.9), lerp(y1 + grow, y1, 0.9) - 10], [lerp(xl, x1, 0.1), lerp(y1 + grow, y1, 0.1) - 10]], "#14182a"); // window
-    seg([xl, y0 - grow], [xl, y1 + grow], "#6a88dc"); // free edge in the light
-  } else {
-    // Past halfway: its inside shows, swung out to the right over the silver strip.
-    const xr = x1 + w * -c;
-    poly([[x1, y0], [xr, y0 - grow], [xr, y1 + grow], [x1, y1]], "#24386e");
-    poly([[lerp(x1, xr, 0.1), y0 + 5], [lerp(x1, xr, 0.9), y0 - grow * 0.9 + 5], [lerp(x1, xr, 0.9), y1 + grow * 0.9 - 9], [lerp(x1, xr, 0.1), y1 - 9]], "#141a2e"); // the window, from behind
-    seg([xr, y0 - grow], [xr, y1 + grow], "#5a78d0");
-    poly([[xr, y0 - grow], [xr + 2, y0 - grow + 1], [xr + 2, y1 + grow + 1], [xr, y1 + grow]], "rgba(0,0,0,.35)"); // its shadow
-  }
+  const a = open * Math.PI * 0.7, w = x1 - x0, c = Math.cos(a), grow = Math.sin(a) * 5; // the free edge comes closer: taller
+  // Door panel as a quad from the hinge (h) to the free edge (f), with the window cut out of it.
+  const f = x0 + w * c, top = (t) => lerp(y0, y0 - grow, t), bot = (t) => lerp(y1, y1 + grow, t);
+  const at = (t, v) => [lerp(x0, f, t), lerp(top(t), bot(t), v)];
+  const wl = (WIN.x0 - x0) / w, wr = (WIN.x1 - x0) / w, wt = (WIN.y0 - y0) / (y1 - y0), wb = (WIN.y1 - y0) / (y1 - y0);
+  const col = c > 0 ? "#2f4fa8" : "#24386e"; // outer side, or its darker inside past halfway
+  poly([at(0, 0), at(1, 0), at(1, wt), at(0, wt)], col);
+  poly([at(0, wb), at(1, wb), at(1, 1), at(0, 1)], col);
+  poly([at(0, wt), at(wl, wt), at(wl, wb), at(0, wb)], col);
+  poly([at(wr, wt), at(1, wt), at(1, wb), at(wr, wb)], col);
+  const win = [at(wl, wt), at(wr, wt), at(wr, wb), at(wl, wb)];
+  glass(win);
+  for (let i = 0; i < 4; i++) seg(win[i], win[(i + 1) % 4], c > 0 ? "#1a2a5a" : "#14182a"); // window frame
+  seg(at(1, 0), at(1, 1), c > 0 ? "#6a88dc" : "#5a78d0"); // free edge in the light
+  if (c < 0) poly([at(1, 0), [f - 2, top(1) + 1], [f - 2, bot(1) + 1], at(1, 1)], "rgba(0,0,0,.35)"); // its shadow
+  rect(x0 - 1, y0, 2, y1 - y0, "#9aa0aa"); // hinge
 }
 
 // Album change, phases in seconds (~3.1s).
@@ -414,6 +426,7 @@ export default {
     player(p, S);
     cable();
     headphonesFront();
+    door(p.door); // after the headphones: it swings open over them
     const inside = p.inCase || (p.caseTape && { cover: p.caseTape, box: IN_CASE });
     tapeCase(p.caseOnDesk, CASE, lift("album"), 1, p.caseOpen, p.caseOnDesk ? inside : null);
     if (p.flyingCase) {
