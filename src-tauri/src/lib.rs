@@ -176,10 +176,117 @@ async fn seek_by(seconds: f64) {
 struct Interfaces(Vec<(&'static str, tauri::menu::CheckMenuItem<tauri::Wry>)>);
 
 #[tauri::command]
-fn interface_checked(items: tauri::State<'_, Interfaces>, id: String) {
+fn interface_checked(app: tauri::AppHandle, items: tauri::State<'_, Interfaces>, id: String) {
     for (name, item) in &items.0 {
         let _ = item.set_checked(*name == id);
     }
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_icon(Some(tray_icon(&id)));
+        #[cfg(target_os = "macos")]
+        let _ = tray.set_icon_as_template(true);
+    }
+}
+
+// Menu bar icons, one per interface: 18×18 pixel art drawn at 2× ('#' = ink).
+// On macOS they are template images (the system colors them for a light or dark menu bar);
+// elsewhere they are white, for the dark taskbar.
+const VINYL: [&str; 18] = [
+    "..................",
+    "......######......",
+    "....##########....",
+    "...############...",
+    "..######..######..",
+    "..####......####..",
+    ".####..####..####.",
+    ".###..######..###.",
+    ".###.###..###.###.",
+    ".###.###..###.###.",
+    ".###..######..###.",
+    ".####..####..####.",
+    "..####......####..",
+    "..######..######..",
+    "...############...",
+    "....##########....",
+    "......######......",
+    "..................",
+];
+const CD: [&str; 18] = [
+    "..................",
+    "......######......",
+    "....##......##....",
+    "...#..........#...",
+    "..#...###......#..",
+    "..#..#.........#..",
+    ".#..#...........#.",
+    ".#..#...##......#.",
+    ".#.....#..#.....#.",
+    ".#.....#..#.....#.",
+    ".#......##...#..#.",
+    ".#...........#..#.",
+    "..#.........#..#..",
+    "..#......###...#..",
+    "...#..........#...",
+    "....##......##....",
+    "......######......",
+    "..................",
+];
+const JUKEBOX: [&str; 18] = [
+    "..................",
+    ".....########.....",
+    "...############...",
+    "..###........###..",
+    ".###..######..###.",
+    ".##..#......#..##.",
+    ".##..#.####.#..##.",
+    ".##..#......#..##.",
+    ".##...######...##.",
+    ".################.",
+    ".##............##.",
+    ".##..#.#..#.#..##.",
+    ".##..#.#..#.#..##.",
+    ".##..#.#..#.#..##.",
+    ".################.",
+    "..###........###..",
+    "..................",
+    "..................",
+];
+const CASSETTE: [&str; 18] = [
+    "..................",
+    "..................",
+    "..................",
+    ".################.",
+    ".#..............#.",
+    ".#.############.#.",
+    ".#.#..........#.#.",
+    ".#.#.###..###.#.#.",
+    ".#.#.#.####.#.#.#.",
+    ".#.#.###..###.#.#.",
+    ".#.#..........#.#.",
+    ".#.############.#.",
+    ".#..............#.",
+    ".#...########...#.",
+    ".################.",
+    "..................",
+    "..................",
+    "..................",
+];
+fn tray_icon(id: &str) -> tauri::image::Image<'static> {
+    let rows = match id {
+        "cd" => &CD,
+        "jukebox" => &JUKEBOX,
+        "cassette" => &CASSETTE,
+        _ => &VINYL,
+    };
+    let ink: [u8; 4] = if cfg!(target_os = "macos") { [0, 0, 0, 255] } else { [255, 255, 255, 255] };
+    let mut rgba = vec![0u8; 36 * 36 * 4];
+    for y in 0..36 {
+        for x in 0..36 {
+            if rows[y / 2].as_bytes()[x / 2] == b'#' {
+                rgba[(y * 36 + x) * 4..][..4].copy_from_slice(&ink);
+            }
+        }
+    }
+    tauri::image::Image::new_owned(rgba, 36, 36)
 }
 
 // Menu bar checkmark for the song name, set from the page's saved setting.
@@ -230,8 +337,9 @@ pub fn run() {
                     let _ = app.emit("mode", mode);
                 }
             });
-            tauri::tray::TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            tauri::tray::TrayIconBuilder::with_id("main")
+                .icon(tray_icon("vinyl"))
+                .icon_as_template(true)
                 .menu(&menu)
                 .build(app)?;
             Ok(())
@@ -263,5 +371,13 @@ mod tests {
         assert!(same_app("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", r"C:\Program Files\WindowsApps\Spotify.exe"));
         assert!(!same_app("Chrome", r"C:\Windows\explorer.exe"));
         assert!(!same_app("Chrome", ""));
+    }
+
+    #[test]
+    fn tray_icons_are_18_by_18() {
+        for rows in [&VINYL, &CD, &JUKEBOX, &CASSETTE] {
+            assert!(rows.iter().all(|r| r.len() == 18));
+        }
+        assert_eq!(tray_icon("cd").rgba().len(), 36 * 36 * 4);
     }
 }
