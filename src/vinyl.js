@@ -219,14 +219,12 @@ const PATH = [
   [IN_SLEEVE, ABOVE_SLEEVE], [ABOVE_SLEEVE, LIFTED], [LIFTED, ON_PLATTER], [ON_PLATTER, ON_PLATTER],
 ];
 
-const standItems = (list) => list.map((cover, i) => ({ cover, ...standSlot(i) }));
+const standItems = (list) => list.slice(0, STAND_SIZE).map((cover, i) => ({ cover, ...standSlot(i) }));
 
 export default {
   id: "vinyl",
   rpm: 100 / 3, // 33⅓
   swap: SWAP,
-  history: "albums", // the stand keeps past albums
-  historySize: STAND_SIZE,
   seekPerTurn: 30, // seconds per full turn of the record by hand
 
   // Fills in where the vinyl parts are. sw: the running album change ({ i, k, from, to, history }) or null.
@@ -246,6 +244,21 @@ export default {
     p.display = i < 5 ? from : to;
     p.wallMix = i < 5 ? 0 : i > 5 ? 1 : k; // 0 = old album's wall color .. 1 = new
     if (i < 4) p.stand = standItems(sw.history);
+    if (sw.back && sw.history[0]) {
+      // Going back to the previous album: the old sleeve slides away to the right, the previous album's sleeve
+      // comes out of the front of the stand to the display, and the stand closes up.
+      const rest = sw.history.slice(1, STAND_SIZE + 1);
+      if (i === 4) {
+        p.displayX = lerp(SLEEVE_X, VIEW_RIGHT + 4, k);
+        p.stand = standItems(sw.history);
+      }
+      if (i === 5) {
+        p.displayX = lerp(standSlot(0).x, SLEEVE_X, k);
+        p.stand = rest.map((cover, j) => ({ cover, ...mix(standSlot(j + 1), standSlot(j), k), alpha: j + 1 < STAND_SIZE ? 1 : k }));
+      }
+      if (i > 5) p.stand = standItems(rest);
+      return;
+    }
     if (i === 4) {
       // Old sleeve slides into the front slot while the others move one slot back; the oldest fades out.
       p.displayX = lerp(SLEEVE_X, standSlot(0).x, k);

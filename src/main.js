@@ -17,7 +17,7 @@ const PAUSE_EASE = 0.3; // seconds for the paused look (vinyl arm lifting) to co
 const FLIP = 0.8; // seconds, coin flip of the disc widget on an album change
 const SEARCH_STEP = 4, SEARCH_EVERY = 250; // holding ◀◀/▶▶: jump 4 s every 250 ms
 const HOLD_DELAY = 400; // ms before a held button starts repeating
-const SONGS_KEPT = 16, ALBUMS_KEPT = 3;
+const SONGS_KEPT = 16, ALBUMS_KEPT = 16; // interfaces show as many as they have room for
 
 // Everything the interfaces read.
 const S = {
@@ -28,7 +28,8 @@ const S = {
   songs: [], // past song covers, newest first (CD wheel)
   songIds: [], // track ids of `songs`, to notice going back to the previous song
   back: false, // the last song change went back to the previous song
-  songCount: 0, // how many songs have gone by (keeps the CD wheel's blank cases in step as it turns)
+  songCount: 0, // how many songs have gone by
+  albumCount: 0, // how many albums have been filed (keeps the CD wheel's blank cases in step as it turns)
   playing: false,
   speed: 0, // 0 stopped .. 1 full speed
   turn: 0, // disc angle in radians
@@ -109,6 +110,8 @@ const PLACEHOLDER = (() => {
 const placeholder = () => ({ ...PLACEHOLDER });
 
 const filed = (from, list) => (from ? [from, ...list] : list).slice(0, ALBUMS_KEPT);
+// Album history after an album change: going back takes the previous album out again, otherwise the old one is filed.
+const afterSwap = (sw) => (sw.back ? sw.albums.slice(1) : filed(sw.from, sw.albums));
 const swapLength = () => (S.mode === "disc" ? FLIP : iface.swap.reduce((a, b) => a + b));
 
 // Where everything is at time `now`. The interface fills in its own parts.
@@ -118,7 +121,7 @@ function pose(now) {
     let t = (now - swap.start) / 1000, i = 0;
     const ph = iface.swap;
     while (i < ph.length - 1 && t > ph[i]) t -= ph[i++];
-    p.sw = { i, k: ease(Math.min(t / ph[i], 1)), from: swap.from, to: swap.to, back: swap.back, history: swap.albums, filed: filed(swap.from, swap.albums) };
+    p.sw = { i, k: ease(Math.min(t / ph[i], 1)), from: swap.from, to: swap.to, back: swap.back, history: swap.albums, filed: afterSwap(swap) };
     p.flip = { k: Math.min((now - swap.start) / 1000 / FLIP, 1), from: swap.from, to: swap.to };
   }
   iface.pose(p, S, p.sw);
@@ -152,7 +155,8 @@ function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   if (swap && now - swap.start > swapLength() * 1000) {
-    S.albums = filed(swap.from, swap.albums);
+    S.albums = afterSwap(swap);
+    S.albumCount += swap.back ? -1 : 1;
     S.shown = swap.to;
     swap = null;
     S.swapping = false;
@@ -242,7 +246,8 @@ async function show(t) {
 function setInterface(id) {
   if (!IFACES[id]) return;
   if (swap) {
-    S.albums = filed(swap.from, swap.albums);
+    S.albums = afterSwap(swap);
+    S.albumCount += swap.back ? -1 : 1;
     S.shown = swap.to;
     swap = null;
     S.swapping = false;
