@@ -5,8 +5,9 @@ import { W, VIEW, SLEEVE, DESK_Y, g, tone, rect, lerp, ease, clipTo } from "./pi
 import vinyl from "./vinyl.js";
 import cd from "./cd.js";
 import jukebox from "./jukebox.js";
+import cassette from "./cassette.js";
 
-const IFACES = { vinyl, cd, jukebox };
+const IFACES = { vinyl, cd, jukebox, cassette };
 const load = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 let iface = IFACES[load("interface", "vinyl")] ?? vinyl;

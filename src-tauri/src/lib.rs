@@ -210,8 +210,9 @@ pub fn run() {
             let vinyl = CheckMenuItem::with_id(app, "iface:vinyl", "Vinyl", true, true, None::<&str>)?;
             let cd = CheckMenuItem::with_id(app, "iface:cd", "CD", true, false, None::<&str>)?;
             let jukebox = CheckMenuItem::with_id(app, "iface:jukebox", "Jukebox", true, false, None::<&str>)?;
-            let interfaces = Submenu::with_items(app, "Interface", true, &[&vinyl, &cd, &jukebox])?;
-            app.manage(Interfaces(vec![("vinyl", vinyl.clone()), ("cd", cd.clone()), ("jukebox", jukebox.clone())]));
+            let cassette = CheckMenuItem::with_id(app, "iface:cassette", "Cassette", true, false, None::<&str>)?;
+            let interfaces = Submenu::with_items(app, "Interface", true, &[&vinyl, &cd, &jukebox, &cassette])?;
+            app.manage(Interfaces(vec![("vinyl", vinyl.clone()), ("cd", cd.clone()), ("jukebox", jukebox.clone()), ("cassette", cassette.clone())]));
             let names = CheckMenuItem::with_id(app, "names", "Show song name", true, false, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit notaplayer", true, None::<&str>)?;
             app.manage(names.clone()); // the page sets its saved state at start (show_name_checked)
