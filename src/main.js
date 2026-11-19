@@ -46,7 +46,7 @@ const S = {
   dragging: false, // dragging the volume slider
 };
 
-let nextUrl, trackId, last = 0, running = false;
+let nextKey, trackId, last = 0, running = false;
 let swap = null; // { start, from, to, albums } while an album change plays
 
 // Average cover color, made darker and stronger so light covers don't wash the wall out.
@@ -89,6 +89,20 @@ async function loadCover(url) {
   const avg = sum.map((s) => s / (d.data.length / 4));
   return { canvas: c, data: d.data, wall: wallFrom(avg), avg: avg.map(Math.round) };
 }
+
+// Placeholder for songs without a usable cover (browsers, some Windows players): black with a gray pixel
+// music note. Each album gets its own copy, so changing albums still plays the swap.
+const NOTE = ["....xxxx", "...xxxxx", "...xx..x", "...x...x", "...x...x", "...x...x", "...x...x", ".xxx.xxx", "xxxx.xxx", ".xx...x."];
+const PLACEHOLDER = (() => {
+  const c = new OffscreenCanvas(SLEEVE, SLEEVE), x = c.getContext("2d");
+  x.fillStyle = "#141519";
+  x.fillRect(0, 0, SLEEVE, SLEEVE);
+  const k = 2, ox = (SLEEVE - 8 * k) / 2, oy = (SLEEVE - NOTE.length * k) / 2; // note drawn 2× so it stays visible small
+  x.fillStyle = "#5c616b";
+  NOTE.forEach((row, y) => [...row].forEach((ch, i) => ch === "x" && x.fillRect(ox + i * k, oy + y * k, k, k)));
+  return { canvas: c, data: x.getImageData(0, 0, SLEEVE, SLEEVE).data, wall: DEFAULT_WALL, avg: [20, 21, 25] };
+})();
+const placeholder = () => ({ ...PLACEHOLDER });
 
 const filed = (from, list) => (from ? [from, ...list] : list).slice(0, ALBUMS_KEPT);
 const swapLength = () => (S.mode === "disc" ? FLIP : iface.swap.reduce((a, b) => a + b));
@@ -175,6 +189,8 @@ async function show(t) {
     S.pos = { sec: t.position, dur: t.duration, at: now };
   }
   const url = t?.artwork_url || null;
+  // What decides a new album: the cover picture, or without one the album name and artist.
+  const key = !t ? null : url || `no-cover:${t.album}|${t.artist}`;
   const id = t?.id ?? null;
   if (id !== trackId && trackId !== undefined) {
     if (S.songCover !== undefined) S.songs = [S.songCover, ...S.songs].slice(0, SONGS_KEPT); // the song that just ended
@@ -182,10 +198,10 @@ async function show(t) {
     S.songChange = now;
   }
   trackId = id;
-  if (url !== nextUrl) {
-    nextUrl = url;
-    const c = url ? await loadCover(url).catch(() => null) : null;
-    if (nextUrl !== url) return; // a newer track arrived while loading
+  if (key !== nextKey) {
+    nextKey = key;
+    const c = !t ? null : url ? await loadCover(url).catch(placeholder) : placeholder();
+    if (nextKey !== key) return; // a newer track arrived while loading
     S.next = c;
     S.songCover = c;
     if (S.shown === undefined) S.shown = c; // first track: just show it
